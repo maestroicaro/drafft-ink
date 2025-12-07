@@ -11,6 +11,10 @@ A whiteboard should be open source and fast, and never be contained by proprieta
 
 <br clear="left"/>
 
+<img width="874" height="888" alt="image" src="./screenshot.png" />
+
+
+
 ### The Origin Story (The Trauma)
 
 Did you actually just ask that? Do you really need a why?
@@ -91,3 +95,4 @@ Don't like it? The source is right here. **Prove me wrong** by submitting a huma
 -----
 
 **Go forth and drafft\!**
+
