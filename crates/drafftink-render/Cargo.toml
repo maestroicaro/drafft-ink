@@ -1,0 +1,36 @@
+[package]
+name = "drafftink-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Renderer abstraction and implementations for DrafftInk"
+
+[features]
+default = ["vello-renderer"]
+vello-renderer = ["dep:vello", "dep:parley"]
+# rough-style feature disabled until rough_vello supports vello 0.6
+# rough-style = ["vello-renderer", "dep:roughr", "dep:rough_vello"]
+
+[dependencies]
+drafftink-core = { path = "../drafftink-core" }
+kurbo.workspace = true
+peniko.workspace = true
+thiserror.workspace = true
+
+# Image decoding
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+
+# Vello renderer
+vello = { workspace = true, optional = true }
+parley = { version = "0.7", optional = true, default-features = false, features = ["std"] }
+
+
+# Rough style rendering (currently incompatible with vello 0.6)
+# roughr = { workspace = true, optional = true }
+# rough_vello = { workspace = true, optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-time = "1.1"
+
+[dev-dependencies]

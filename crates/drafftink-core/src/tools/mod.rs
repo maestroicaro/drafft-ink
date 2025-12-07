@@ -1,0 +1,273 @@
+//! Tool system for the whiteboard.
+
+use crate::shapes::{Shape, ShapeStyle};
+use kurbo::Point;
+use serde::{Deserialize, Serialize};
+
+/// Generate a random seed for new tool interactions.
+/// Uses a simple counter + hash approach that works on all platforms including WASM.
+fn generate_tool_seed() -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    
+    static SEED_COUNTER: AtomicU32 = AtomicU32::new(1);
+    
+    let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
+    
+    // Mix the counter with constants for better distribution (splitmix32-like)
+    let mut x = counter.wrapping_mul(0x9E3779B9);
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x85EBCA6B);
+    x ^= x >> 13;
+    x = x.wrapping_mul(0xC2B2AE35);
+    x ^= x >> 16;
+    x
+}
+
+/// Available tools.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum ToolKind {
+    #[default]
+    Select,
+    Pan,
+    Rectangle,
+    Ellipse,
+    Line,
+    Arrow,
+    Freehand,
+    Text,
+}
+
+/// State of a tool interaction.
+#[derive(Debug, Clone)]
+pub enum ToolState {
+    /// Tool is idle, waiting for interaction.
+    Idle,
+    /// Tool is actively being used (e.g., drawing a shape).
+    Active {
+        /// Starting point of the interaction.
+        start: Point,
+        /// Current point of the interaction.
+        current: Point,
+        /// Preview shape being drawn.
+        preview: Option<Shape>,
+        /// Seed for hand-drawn effect (generated once at start, stable during drawing).
+        seed: u32,
+    },
+}
+
+impl Default for ToolState {
+    fn default() -> Self {
+        Self::Idle
+    }
+}
+
+/// Manages the current tool and its state.
+#[derive(Debug, Clone, Default)]
+pub struct ToolManager {
+    /// Currently selected tool.
+    pub current_tool: ToolKind,
+    /// Current state of the tool.
+    pub state: ToolState,
+    /// Accumulated points for freehand drawing.
+    freehand_points: Vec<Point>,
+    /// Current style to apply to new shapes.
+    pub current_style: ShapeStyle,
+    /// Corner radius for new rectangles (0 = sharp corners).
+    pub corner_radius: f64,
+}
+
+impl ToolManager {
+    /// Create a new tool manager.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the current tool.
+    pub fn set_tool(&mut self, tool: ToolKind) {
+        self.current_tool = tool;
+        self.state = ToolState::Idle;
+    }
+
+    /// Begin a tool interaction.
+    pub fn begin(&mut self, point: Point) {
+        // Clear and start freehand points if using freehand tool
+        if self.current_tool == ToolKind::Freehand {
+            self.freehand_points.clear();
+            self.freehand_points.push(point);
+        }
+        
+        self.state = ToolState::Active {
+            start: point,
+            current: point,
+            preview: None,
+            seed: generate_tool_seed(),
+        };
+    }
+
+    /// Update the current interaction.
+    pub fn update(&mut self, point: Point) {
+        if let ToolState::Active { current, .. } = &mut self.state {
+            *current = point;
+            
+            // Accumulate points for freehand
+            if self.current_tool == ToolKind::Freehand {
+                self.freehand_points.push(point);
+            }
+        }
+    }
+
+    /// End the current interaction and return any created shape.
+    pub fn end(&mut self, point: Point) -> Option<Shape> {
+        if let ToolState::Active { start, seed, .. } = &self.state {
+            let start = *start;
+            let seed = *seed;
+            let shape = self.create_shape_with_seed(start, point, seed);
+            self.state = ToolState::Idle;
+            self.freehand_points.clear();
+            shape
+        } else {
+            None
+        }
+    }
+
+    /// Cancel the current interaction.
+    pub fn cancel(&mut self) {
+        self.state = ToolState::Idle;
+        self.freehand_points.clear();
+    }
+
+    /// Check if a tool interaction is active.
+    pub fn is_active(&self) -> bool {
+        matches!(self.state, ToolState::Active { .. })
+    }
+
+    /// Get the preview shape for the current interaction.
+    pub fn preview_shape(&self) -> Option<Shape> {
+        if let ToolState::Active { start, current, seed, .. } = &self.state {
+            // For freehand, use the accumulated points
+            if self.current_tool == ToolKind::Freehand {
+                return self.create_freehand_preview(*seed);
+            }
+            self.create_shape_with_seed(*start, *current, *seed)
+        } else {
+            None
+        }
+    }
+
+    /// Create a freehand preview from accumulated points.
+    fn create_freehand_preview(&self, seed: u32) -> Option<Shape> {
+        use crate::shapes::Freehand;
+        
+        if self.freehand_points.len() >= 2 {
+            let mut freehand = Freehand::from_points(self.freehand_points.clone());
+            freehand.style = self.current_style.clone();
+            freehand.style.seed = seed;
+            Some(Shape::Freehand(freehand))
+        } else {
+            None
+        }
+    }
+
+    /// Get the accumulated freehand points (for final shape creation).
+    pub fn freehand_points(&self) -> &[Point] {
+        &self.freehand_points
+    }
+
+    /// Create a shape from start and end points with a specific seed.
+    fn create_shape_with_seed(&self, start: Point, end: Point, seed: u32) -> Option<Shape> {
+        use crate::shapes::{Arrow, Ellipse, Line, Rectangle, Text};
+
+        let mut shape = match self.current_tool {
+            ToolKind::Rectangle => {
+                let mut rect = Rectangle::from_corners(start, end);
+                rect.corner_radius = self.corner_radius;
+                Some(Shape::Rectangle(rect))
+            }
+            ToolKind::Ellipse => {
+                let rect = kurbo::Rect::new(
+                    start.x.min(end.x),
+                    start.y.min(end.y),
+                    start.x.max(end.x),
+                    start.y.max(end.y),
+                );
+                Some(Shape::Ellipse(Ellipse::from_rect(rect)))
+            }
+            ToolKind::Line => Some(Shape::Line(Line::new(start, end))),
+            ToolKind::Arrow => Some(Shape::Arrow(Arrow::new(start, end))),
+            ToolKind::Freehand => {
+                // Use accumulated points for freehand
+                return self.create_freehand_preview(seed);
+            }
+            ToolKind::Text => {
+                // Text is created at the click position with empty content
+                Some(Shape::Text(Text::new(start, String::new())))
+            }
+            ToolKind::Select | ToolKind::Pan => None,
+        };
+        
+        // Apply current style to the shape with the stable seed
+        if let Some(ref mut s) = shape {
+            let mut style = self.current_style.clone();
+            style.seed = seed;
+            *s.style_mut() = style;
+        }
+        
+        shape
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tool_selection() {
+        let mut tm = ToolManager::new();
+        assert_eq!(tm.current_tool, ToolKind::Select);
+
+        tm.set_tool(ToolKind::Rectangle);
+        assert_eq!(tm.current_tool, ToolKind::Rectangle);
+    }
+
+    #[test]
+    fn test_tool_interaction() {
+        let mut tm = ToolManager::new();
+        tm.set_tool(ToolKind::Rectangle);
+
+        assert!(!tm.is_active());
+
+        tm.begin(Point::new(0.0, 0.0));
+        assert!(tm.is_active());
+
+        tm.update(Point::new(50.0, 50.0));
+
+        let preview = tm.preview_shape();
+        assert!(preview.is_some());
+
+        let shape = tm.end(Point::new(100.0, 100.0));
+        assert!(shape.is_some());
+        assert!(!tm.is_active());
+    }
+
+    #[test]
+    fn test_cancel_interaction() {
+        let mut tm = ToolManager::new();
+        tm.set_tool(ToolKind::Rectangle);
+
+        tm.begin(Point::new(0.0, 0.0));
+        assert!(tm.is_active());
+
+        tm.cancel();
+        assert!(!tm.is_active());
+    }
+
+    #[test]
+    fn test_select_tool_no_shape() {
+        let mut tm = ToolManager::new();
+        tm.set_tool(ToolKind::Select);
+
+        tm.begin(Point::new(0.0, 0.0));
+        let shape = tm.end(Point::new(100.0, 100.0));
+        assert!(shape.is_none());
+    }
+}
