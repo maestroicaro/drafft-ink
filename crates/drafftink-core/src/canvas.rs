@@ -426,6 +426,15 @@ impl Canvas {
         self.widgets.clear_selection();
     }
 
+    /// Select all shapes.
+    pub fn select_all(&mut self) {
+        self.clear_selection();
+        for &id in &self.document.z_order {
+            self.selection.push(id);
+            self.widgets.add_to_selection(id);
+        }
+    }
+
     /// Check if a shape is selected.
     pub fn is_selected(&self, id: ShapeId) -> bool {
         self.widgets.is_selected(id)

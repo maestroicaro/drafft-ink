@@ -384,7 +384,7 @@ impl EventHandler {
                 }
                 // Now push undo and apply the final change
                 canvas.document.push_undo();
-                let new_shape = apply_manipulation(&manip.original_shape, manip.handle, delta);
+                let new_shape = apply_manipulation(&manip.original_shape, manip.handle, delta, input.modifiers.shift);
                 if let Some(shape) = canvas.document.get_shape_mut(manip.shape_id) {
                     *shape = new_shape;
                 }
@@ -582,7 +582,7 @@ impl EventHandler {
     /// Handle a move event while dragging.
     /// `snap_mode` controls whether points should snap to grid.
     /// `angle_snap_enabled` enables 15° angle snapping for lines/arrows.
-    pub fn handle_drag(&mut self, canvas: &mut Canvas, world_point: Point, _input: &InputState, snap_mode: SnapMode, angle_snap_enabled: bool) {
+    pub fn handle_drag(&mut self, canvas: &mut Canvas, world_point: Point, input: &InputState, snap_mode: SnapMode, angle_snap_enabled: bool) {
         // Clear previous snap
         self.last_snap = None;
         self.last_angle_snap = None;
@@ -698,7 +698,7 @@ impl EventHandler {
             );
             
             // Apply manipulation preview to the shape
-            let new_shape = apply_manipulation(&manip.original_shape, manip.handle, adjusted_delta);
+            let new_shape = apply_manipulation(&manip.original_shape, manip.handle, adjusted_delta, input.modifiers.shift);
             if let Some(shape) = canvas.document.get_shape_mut(manip.shape_id) {
                 *shape = new_shape;
             }

@@ -266,7 +266,8 @@ pub fn get_manipulation_target_position(shape: &Shape, handle: Option<HandleKind
 
 /// Apply a handle manipulation to a shape.
 /// Returns the modified shape.
-pub fn apply_manipulation(shape: &Shape, handle: Option<HandleKind>, delta: kurbo::Vec2) -> Shape {
+/// `keep_aspect_ratio`: if true, maintains aspect ratio during corner resize (Shift key).
+pub fn apply_manipulation(shape: &Shape, handle: Option<HandleKind>, delta: kurbo::Vec2, keep_aspect_ratio: bool) -> Shape {
     let mut shape = shape.clone();
     
     match handle {
@@ -303,10 +304,16 @@ pub fn apply_manipulation(shape: &Shape, handle: Option<HandleKind>, delta: kurb
             // Resize from a corner
             match &mut shape {
                 Shape::Rectangle(rect) => {
-                    apply_corner_resize_rect(rect, corner, delta);
+                    apply_corner_resize_rect(rect, corner, delta, keep_aspect_ratio);
                 }
                 Shape::Ellipse(ellipse) => {
-                    apply_corner_resize_ellipse(ellipse, corner, delta);
+                    apply_corner_resize_ellipse(ellipse, corner, delta, keep_aspect_ratio);
+                }
+                Shape::Freehand(freehand) => {
+                    apply_corner_resize_freehand(freehand, corner, delta, keep_aspect_ratio);
+                }
+                Shape::Image(image) => {
+                    apply_corner_resize_image(image, corner, delta, keep_aspect_ratio);
                 }
                 _ => {}
             }
@@ -320,7 +327,7 @@ pub fn apply_manipulation(shape: &Shape, handle: Option<HandleKind>, delta: kurb
 }
 
 /// Apply corner resize to a rectangle.
-fn apply_corner_resize_rect(rect: &mut crate::shapes::Rectangle, corner: Corner, delta: kurbo::Vec2) {
+fn apply_corner_resize_rect(rect: &mut crate::shapes::Rectangle, corner: Corner, delta: kurbo::Vec2, keep_aspect_ratio: bool) {
     let bounds = rect.bounds();
     let (new_x0, new_y0, new_x1, new_y1) = match corner {
         Corner::TopLeft => (bounds.x0 + delta.x, bounds.y0 + delta.y, bounds.x1, bounds.y1),
@@ -329,17 +336,26 @@ fn apply_corner_resize_rect(rect: &mut crate::shapes::Rectangle, corner: Corner,
         Corner::BottomRight => (bounds.x0, bounds.y0, bounds.x1 + delta.x, bounds.y1 + delta.y),
     };
     
-    // Ensure min size and handle flipping
     let (x0, x1) = if new_x0 < new_x1 { (new_x0, new_x1) } else { (new_x1, new_x0) };
     let (y0, y1) = if new_y0 < new_y1 { (new_y0, new_y1) } else { (new_y1, new_y0) };
     
+    let (width, height) = if keep_aspect_ratio {
+        let aspect = bounds.width() / bounds.height().max(0.1);
+        let new_width = (x1 - x0).max(1.0);
+        let new_height = (y1 - y0).max(1.0);
+        let size = new_width.max(new_height);
+        (size, size / aspect)
+    } else {
+        ((x1 - x0).max(1.0), (y1 - y0).max(1.0))
+    };
+    
     rect.position = Point::new(x0, y0);
-    rect.width = (x1 - x0).max(1.0);
-    rect.height = (y1 - y0).max(1.0);
+    rect.width = width;
+    rect.height = height;
 }
 
 /// Apply corner resize to an ellipse.
-fn apply_corner_resize_ellipse(ellipse: &mut crate::shapes::Ellipse, corner: Corner, delta: kurbo::Vec2) {
+fn apply_corner_resize_ellipse(ellipse: &mut crate::shapes::Ellipse, corner: Corner, delta: kurbo::Vec2, keep_aspect_ratio: bool) {
     let bounds = ellipse.bounds();
     let (new_x0, new_y0, new_x1, new_y1) = match corner {
         Corner::TopLeft => (bounds.x0 + delta.x, bounds.y0 + delta.y, bounds.x1, bounds.y1),
@@ -348,16 +364,87 @@ fn apply_corner_resize_ellipse(ellipse: &mut crate::shapes::Ellipse, corner: Cor
         Corner::BottomRight => (bounds.x0, bounds.y0, bounds.x1 + delta.x, bounds.y1 + delta.y),
     };
     
-    // Ensure min size and handle flipping
     let (x0, x1) = if new_x0 < new_x1 { (new_x0, new_x1) } else { (new_x1, new_x0) };
     let (y0, y1) = if new_y0 < new_y1 { (new_y0, new_y1) } else { (new_y1, new_y0) };
     
-    let width = (x1 - x0).max(1.0);
-    let height = (y1 - y0).max(1.0);
+    let (width, height) = if keep_aspect_ratio {
+        let aspect = bounds.width() / bounds.height().max(0.1);
+        let new_width = (x1 - x0).max(1.0);
+        let new_height = (y1 - y0).max(1.0);
+        let size = new_width.max(new_height);
+        (size, size / aspect)
+    } else {
+        ((x1 - x0).max(1.0), (y1 - y0).max(1.0))
+    };
     
     ellipse.center = Point::new(x0 + width / 2.0, y0 + height / 2.0);
     ellipse.radius_x = width / 2.0;
     ellipse.radius_y = height / 2.0;
+}
+
+/// Apply corner resize to a freehand drawing.
+fn apply_corner_resize_freehand(freehand: &mut crate::shapes::Freehand, corner: Corner, delta: kurbo::Vec2, keep_aspect_ratio: bool) {
+    if freehand.points.is_empty() {
+        return;
+    }
+    
+    let bounds = freehand.bounds();
+    let (new_x0, new_y0, new_x1, new_y1) = match corner {
+        Corner::TopLeft => (bounds.x0 + delta.x, bounds.y0 + delta.y, bounds.x1, bounds.y1),
+        Corner::TopRight => (bounds.x0, bounds.y0 + delta.y, bounds.x1 + delta.x, bounds.y1),
+        Corner::BottomLeft => (bounds.x0 + delta.x, bounds.y0, bounds.x1, bounds.y1 + delta.y),
+        Corner::BottomRight => (bounds.x0, bounds.y0, bounds.x1 + delta.x, bounds.y1 + delta.y),
+    };
+    
+    let (x0, x1) = if new_x0 < new_x1 { (new_x0, new_x1) } else { (new_x1, new_x0) };
+    let (y0, y1) = if new_y0 < new_y1 { (new_y0, new_y1) } else { (new_y1, new_y0) };
+    
+    let old_width = bounds.width().max(1.0);
+    let old_height = bounds.height().max(1.0);
+    
+    let (scale_x, scale_y) = if keep_aspect_ratio {
+        let new_width = (x1 - x0).max(1.0);
+        let new_height = (y1 - y0).max(1.0);
+        let scale = (new_width / old_width).max(new_height / old_height);
+        (scale, scale)
+    } else {
+        ((x1 - x0).max(1.0) / old_width, (y1 - y0).max(1.0) / old_height)
+    };
+    
+    for point in &mut freehand.points {
+        let rel_x = point.x - bounds.x0;
+        let rel_y = point.y - bounds.y0;
+        point.x = x0 + rel_x * scale_x;
+        point.y = y0 + rel_y * scale_y;
+    }
+}
+
+/// Apply corner resize to an image.
+fn apply_corner_resize_image(image: &mut crate::shapes::Image, corner: Corner, delta: kurbo::Vec2, keep_aspect_ratio: bool) {
+    let bounds = image.bounds();
+    let (new_x0, new_y0, new_x1, new_y1) = match corner {
+        Corner::TopLeft => (bounds.x0 + delta.x, bounds.y0 + delta.y, bounds.x1, bounds.y1),
+        Corner::TopRight => (bounds.x0, bounds.y0 + delta.y, bounds.x1 + delta.x, bounds.y1),
+        Corner::BottomLeft => (bounds.x0 + delta.x, bounds.y0, bounds.x1, bounds.y1 + delta.y),
+        Corner::BottomRight => (bounds.x0, bounds.y0, bounds.x1 + delta.x, bounds.y1 + delta.y),
+    };
+    
+    let (x0, x1) = if new_x0 < new_x1 { (new_x0, new_x1) } else { (new_x1, new_x0) };
+    let (y0, y1) = if new_y0 < new_y1 { (new_y0, new_y1) } else { (new_y1, new_y0) };
+    
+    let (width, height) = if keep_aspect_ratio {
+        let aspect = bounds.width() / bounds.height().max(0.1);
+        let new_width = (x1 - x0).max(1.0);
+        let new_height = (y1 - y0).max(1.0);
+        let size = new_width.max(new_height);
+        (size, size / aspect)
+    } else {
+        ((x1 - x0).max(1.0), (y1 - y0).max(1.0))
+    };
+    
+    image.position = Point::new(x0, y0);
+    image.width = width;
+    image.height = height;
 }
 
 #[cfg(test)]
@@ -398,7 +485,7 @@ mod tests {
         let line = Line::new(Point::new(0.0, 0.0), Point::new(100.0, 100.0));
         let shape = Shape::Line(line);
         
-        let result = apply_manipulation(&shape, Some(HandleKind::Endpoint(1)), kurbo::Vec2::new(10.0, 20.0));
+        let result = apply_manipulation(&shape, Some(HandleKind::Endpoint(1)), kurbo::Vec2::new(10.0, 20.0), false);
         
         if let Shape::Line(line) = result {
             assert!((line.end.x - 110.0).abs() < f64::EPSILON);
@@ -416,12 +503,94 @@ mod tests {
         let result = apply_manipulation(
             &shape, 
             Some(HandleKind::Corner(Corner::BottomRight)), 
-            kurbo::Vec2::new(50.0, 50.0)
+            kurbo::Vec2::new(50.0, 50.0),
+            false
         );
         
         if let Shape::Rectangle(rect) = result {
             assert!((rect.width - 150.0).abs() < f64::EPSILON);
             assert!((rect.height - 150.0).abs() < f64::EPSILON);
+        } else {
+            panic!("Expected Rectangle shape");
+        }
+    }
+
+    #[test]
+    fn test_freehand_resize() {
+        use crate::shapes::Freehand;
+        
+        let freehand = Freehand::from_points(vec![
+            Point::new(0.0, 0.0),
+            Point::new(50.0, 0.0),
+            Point::new(50.0, 50.0),
+            Point::new(0.0, 50.0),
+        ]);
+        let shape = Shape::Freehand(freehand);
+        
+        let result = apply_manipulation(
+            &shape,
+            Some(HandleKind::Corner(Corner::BottomRight)),
+            kurbo::Vec2::new(50.0, 50.0),
+            false
+        );
+        
+        if let Shape::Freehand(freehand) = result {
+            let bounds = freehand.bounds();
+            assert!((bounds.width() - 100.0).abs() < 0.1);
+            assert!((bounds.height() - 100.0).abs() < 0.1);
+        } else {
+            panic!("Expected Freehand shape");
+        }
+    }
+
+    #[test]
+    fn test_image_resize() {
+        use crate::shapes::{Image, ImageFormat, ShapeStyle};
+        
+        let image = Image {
+            id: uuid::Uuid::new_v4(),
+            position: Point::new(0.0, 0.0),
+            width: 100.0,
+            height: 100.0,
+            source_width: 200,
+            source_height: 200,
+            format: ImageFormat::Png,
+            data_base64: String::new(),
+            style: ShapeStyle::default(),
+        };
+        let shape = Shape::Image(image);
+        
+        let result = apply_manipulation(
+            &shape,
+            Some(HandleKind::Corner(Corner::BottomRight)),
+            kurbo::Vec2::new(50.0, 50.0),
+            false
+        );
+        
+        if let Shape::Image(image) = result {
+            assert!((image.width - 150.0).abs() < f64::EPSILON);
+            assert!((image.height - 150.0).abs() < f64::EPSILON);
+        } else {
+            panic!("Expected Image shape");
+        }
+    }
+
+    #[test]
+    fn test_aspect_ratio_resize() {
+        let rect = Rectangle::new(Point::new(0.0, 0.0), 100.0, 50.0);
+        let shape = Shape::Rectangle(rect);
+        
+        let result = apply_manipulation(
+            &shape,
+            Some(HandleKind::Corner(Corner::BottomRight)),
+            kurbo::Vec2::new(100.0, 100.0),
+            true // keep aspect ratio
+        );
+        
+        if let Shape::Rectangle(rect) = result {
+            // With aspect ratio 2:1, resizing should maintain that ratio
+            let aspect = rect.width / rect.height;
+            assert!((aspect - 2.0).abs() < 0.1);
         } else {
             panic!("Expected Rectangle shape");
         }

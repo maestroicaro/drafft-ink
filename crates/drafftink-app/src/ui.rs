@@ -179,6 +179,18 @@ pub struct UiState {
     pub bg_color: Color32,
     /// Whether the collaboration modal is open.
     pub collab_modal_open: bool,
+    /// Whether the keyboard shortcuts modal is open.
+    pub shortcuts_modal_open: bool,
+    /// Whether the save dialog is open.
+    pub save_dialog_open: bool,
+    /// Whether the open dialog is open.
+    pub open_dialog_open: bool,
+    /// Whether the open recent dialog is open.
+    pub open_recent_dialog_open: bool,
+    /// Input for save document name.
+    pub save_name_input: String,
+    /// List of recent document names.
+    pub recent_documents: Vec<String>,
     /// Clipboard for copied/cut shapes (JSON serialized).
     pub clipboard_shapes: Option<String>,
 }
@@ -211,6 +223,12 @@ impl Default for UiState {
             user_color: "#6366f1".to_string(), // Indigo
             bg_color: Color32::WHITE,
             collab_modal_open: false,
+            shortcuts_modal_open: false,
+            save_dialog_open: false,
+            open_dialog_open: false,
+            open_recent_dialog_open: false,
+            save_name_input: String::new(),
+            recent_documents: Vec::new(),
             clipboard_shapes: None,
         }
     }
@@ -260,6 +278,18 @@ pub enum UiAction {
     SetFillColor(Option<Color32>),
     /// Change stroke width.
     SetStrokeWidth(f32),
+    /// Save document with current name to local storage.
+    SaveLocal,
+    /// Show save dialog to rename and save document locally.
+    SaveLocalAs,
+    /// Show open dialog with dropdown list.
+    ShowOpenDialog,
+    /// Show open recent dialog with all recent documents.
+    ShowOpenRecentDialog,
+    /// Save document with given name to local storage.
+    SaveLocalWithName(String),
+    /// Load document by name from local storage.
+    LoadLocal(String),
     /// Save document (to local storage on WASM, file dialog on native).
     SaveDocument,
     /// Load document (from local storage on WASM, file dialog on native).
@@ -348,6 +378,8 @@ pub enum UiAction {
     AlignCenterH,
     /// Align selected shapes to vertical center.
     AlignCenterV,
+    /// Show keyboard shortcuts help.
+    ShowShortcuts,
 }
 
 /// Tool definitions with SVG icons
@@ -1185,18 +1217,33 @@ fn render_file_menu(ctx: &Context, ui_state: &mut UiState) -> Option<UiAction> {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 panel_frame().show(ui, |ui| {
-                    ui.set_width(160.0); // Fixed menu width
+                    ui.set_width(180.0); // Fixed menu width
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing = Vec2::new(0.0, 2.0);
 
-                        if menu_item(ui, "Save", "Ctrl+S") {
-                            action = Some(UiAction::SaveDocument);
+                        if menu_item(ui, "Save Local", "Ctrl+S") {
+                            action = Some(UiAction::SaveLocal);
                             ui_state.menu_open = false;
                         }
+                        if menu_item(ui, "Save Local As...", "") {
+                            action = Some(UiAction::SaveLocalAs);
+                            ui_state.menu_open = false;
+                        }
+                        
+                        widgets_menu_separator(ui);
+                        
                         if menu_item(ui, "Open", "Ctrl+O") {
-                            action = Some(UiAction::LoadDocument);
+                            action = Some(UiAction::ShowOpenDialog);
                             ui_state.menu_open = false;
                         }
+                        
+                        if menu_item(ui, "Open Recent...", "") {
+                            action = Some(UiAction::ShowOpenRecentDialog);
+                            ui_state.menu_open = false;
+                        }
+                        
+                        widgets_menu_separator(ui);
+                        
                         if menu_item(ui, "Clear", "") {
                             action = Some(UiAction::ClearDocument);
                             ui_state.menu_open = false;
@@ -1250,6 +1297,13 @@ fn render_file_menu(ctx: &Context, ui_state: &mut UiState) -> Option<UiAction> {
                             }
                         });
                         
+                        widgets_menu_separator(ui);
+                        
+                        if menu_item(ui, "Keyboard Shortcuts", "?") {
+                            action = Some(UiAction::ShowShortcuts);
+                            ui_state.menu_open = false;
+                        }
+                        
                     });
                 });
             });
@@ -1276,6 +1330,32 @@ fn render_file_menu(ctx: &Context, ui_state: &mut UiState) -> Option<UiAction> {
     if ui_state.collab_modal_open {
         if let Some(modal_action) = render_collaboration_modal(ctx, ui_state) {
             action = Some(modal_action);
+        }
+    }
+    
+    // Render shortcuts modal if open
+    if ui_state.shortcuts_modal_open {
+        render_shortcuts_modal(ctx, ui_state);
+    }
+    
+    // Render save dialog if open
+    if ui_state.save_dialog_open {
+        if let Some(save_action) = render_save_dialog(ctx, ui_state) {
+            action = Some(save_action);
+        }
+    }
+    
+    // Render open dialog if open
+    if ui_state.open_dialog_open {
+        if let Some(open_action) = render_open_dialog(ctx, ui_state) {
+            action = Some(open_action);
+        }
+    }
+    
+    // Render open recent dialog if open
+    if ui_state.open_recent_dialog_open {
+        if let Some(open_action) = render_open_recent_dialog(ctx, ui_state) {
+            action = Some(open_action);
         }
     }
 
@@ -1712,6 +1792,291 @@ fn render_presence_panel(ctx: &Context, ui_state: &UiState) {
                 }
             });
         });
+}
+
+/// Render the keyboard shortcuts modal.
+fn render_shortcuts_modal(ctx: &Context, ui_state: &mut UiState) {
+    use crate::shortcuts::ShortcutRegistry;
+    
+    // Backdrop
+    egui::Area::new(egui::Id::new("shortcuts_backdrop"))
+        .fixed_pos(Pos2::ZERO)
+        .order(egui::Order::Background)
+        .show(ctx, |ui| {
+            let screen_rect = ctx.screen_rect();
+            let response = ui.allocate_rect(screen_rect, egui::Sense::click());
+            ui.painter().rect_filled(screen_rect, 0.0, Color32::from_black_alpha(80));
+            if response.clicked() {
+                ui_state.shortcuts_modal_open = false;
+            }
+        });
+
+    // Modal window
+    egui::Area::new(egui::Id::new("shortcuts_modal"))
+        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            panel_frame().show(ui, |ui| {
+                ui.set_width(500.0);
+                ui.vertical(|ui| {
+                    // Header
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Keyboard Shortcuts").size(16.0).strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let close_btn = egui::Button::new(
+                                egui::RichText::new("✕").size(16.0).color(Color32::from_gray(100))
+                            ).frame(false);
+                            if ui.add(close_btn).clicked() {
+                                ui_state.shortcuts_modal_open = false;
+                            }
+                        });
+                    });
+                    
+                    ui.add_space(12.0);
+                    
+                    // Shortcuts list
+                    egui::ScrollArea::vertical()
+                        .max_height(400.0)
+                        .show(ui, |ui| {
+                            for shortcut in ShortcutRegistry::all() {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(shortcut.format())
+                                            .size(12.0)
+                                            .family(egui::FontFamily::Monospace)
+                                            .color(Color32::from_rgb(100, 116, 139))
+                                    );
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        ui.label(
+                                            egui::RichText::new(shortcut.description)
+                                                .size(12.0)
+                                                .color(Color32::from_gray(200))
+                                        );
+                                    });
+                                });
+                                ui.add_space(4.0);
+                            }
+                        });
+                });
+            });
+        });
+}
+
+/// Render the save dialog modal.
+fn render_save_dialog(ctx: &Context, ui_state: &mut UiState) -> Option<UiAction> {
+    let mut action = None;
+    
+    // Backdrop
+    egui::Area::new(egui::Id::new("save_dialog_backdrop"))
+        .fixed_pos(Pos2::ZERO)
+        .order(egui::Order::Background)
+        .show(ctx, |ui| {
+            let screen_rect = ctx.screen_rect();
+            let response = ui.allocate_rect(screen_rect, egui::Sense::click());
+            ui.painter().rect_filled(screen_rect, 0.0, Color32::from_black_alpha(80));
+            if response.clicked() {
+                ui_state.save_dialog_open = false;
+            }
+        });
+
+    // Modal window
+    egui::Area::new(egui::Id::new("save_dialog"))
+        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            Frame::new()
+                .fill(Color32::WHITE)
+                .corner_radius(CornerRadius::same(12))
+                .stroke(Stroke::new(1.0, Color32::from_gray(200)))
+                .inner_margin(Margin::same(20))
+                .show(ui, |ui| {
+                ui.set_width(300.0);
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Save Document").size(16.0).strong().color(Color32::from_gray(30)));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let close_btn = egui::Button::new(
+                                egui::RichText::new("✕").size(16.0).color(Color32::from_gray(100))
+                            ).frame(false);
+                            if ui.add(close_btn).clicked() {
+                                ui_state.save_dialog_open = false;
+                            }
+                        });
+                    });
+                    
+                    ui.add_space(12.0);
+                    
+                    ui.label(egui::RichText::new("Document name:").size(12.0).color(Color32::from_gray(60)));
+                    let response = ui.add(egui::TextEdit::singleline(&mut ui_state.save_name_input)
+                        .desired_width(300.0)
+                        .text_color(Color32::from_gray(30))
+                        .background_color(Color32::WHITE));
+                    
+                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        if !ui_state.save_name_input.trim().is_empty() {
+                            action = Some(UiAction::SaveLocalWithName(ui_state.save_name_input.trim().to_string()));
+                            ui_state.save_dialog_open = false;
+                        }
+                    }
+                    
+                    ui.add_space(12.0);
+                    
+                    ui.horizontal(|ui| {
+                        let cancel_btn = egui::Button::new(egui::RichText::new("Cancel").color(Color32::from_gray(100)))
+                            .fill(Color32::from_gray(240))
+                            .min_size(Vec2::new(80.0, 32.0))
+                            .corner_radius(CornerRadius::same(6));
+                        if ui.add(cancel_btn).clicked() {
+                            ui_state.save_dialog_open = false;
+                        }
+                        let save_btn = egui::Button::new(egui::RichText::new("Save").color(Color32::WHITE))
+                            .fill(Color32::from_rgb(59, 130, 246))
+                            .min_size(Vec2::new(80.0, 32.0))
+                            .corner_radius(CornerRadius::same(6));
+                        if ui.add(save_btn).clicked() && !ui_state.save_name_input.trim().is_empty() {
+                            action = Some(UiAction::SaveLocalWithName(ui_state.save_name_input.trim().to_string()));
+                            ui_state.save_dialog_open = false;
+                        }
+                    });
+                });
+            });
+        });
+    
+    action
+}
+
+/// Render the open dialog modal with dropdown.
+fn render_open_dialog(ctx: &Context, ui_state: &mut UiState) -> Option<UiAction> {
+    let mut action = None;
+    
+    // Backdrop
+    egui::Area::new(egui::Id::new("open_dialog_backdrop"))
+        .fixed_pos(Pos2::ZERO)
+        .order(egui::Order::Background)
+        .show(ctx, |ui| {
+            let screen_rect = ctx.screen_rect();
+            let response = ui.allocate_rect(screen_rect, egui::Sense::click());
+            ui.painter().rect_filled(screen_rect, 0.0, Color32::from_black_alpha(80));
+            if response.clicked() {
+                ui_state.open_dialog_open = false;
+            }
+        });
+
+    // Modal window
+    egui::Area::new(egui::Id::new("open_dialog"))
+        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            Frame::new()
+                .fill(Color32::WHITE)
+                .corner_radius(CornerRadius::same(12))
+                .stroke(Stroke::new(1.0, Color32::from_gray(200)))
+                .inner_margin(Margin::same(20))
+                .show(ui, |ui| {
+                ui.set_width(300.0);
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Open Document").size(16.0).strong().color(Color32::from_gray(30)));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let close_btn = egui::Button::new(
+                                egui::RichText::new("✕").size(16.0).color(Color32::from_gray(100))
+                            ).frame(false);
+                            if ui.add(close_btn).clicked() {
+                                ui_state.open_dialog_open = false;
+                            }
+                        });
+                    });
+                    
+                    ui.add_space(12.0);
+                    
+                    ui.label(egui::RichText::new("Select document:").size(12.0).color(Color32::from_gray(60)));
+                    
+                    if ui_state.recent_documents.is_empty() {
+                        ui.label(egui::RichText::new("No saved documents").color(Color32::from_gray(150)));
+                    } else {
+                        egui::ScrollArea::vertical()
+                            .max_height(300.0)
+                            .show(ui, |ui| {
+                                for doc_name in &ui_state.recent_documents.clone() {
+                                    if ui.button(doc_name).clicked() {
+                                        action = Some(UiAction::LoadLocal(doc_name.clone()));
+                                        ui_state.open_dialog_open = false;
+                                    }
+                                }
+                            });
+                    }
+                });
+            });
+        });
+    
+    action
+}
+
+/// Render the open recent dialog modal.
+fn render_open_recent_dialog(ctx: &Context, ui_state: &mut UiState) -> Option<UiAction> {
+    let mut action = None;
+    
+    // Backdrop
+    egui::Area::new(egui::Id::new("open_recent_backdrop"))
+        .fixed_pos(Pos2::ZERO)
+        .order(egui::Order::Background)
+        .show(ctx, |ui| {
+            let screen_rect = ctx.screen_rect();
+            let response = ui.allocate_rect(screen_rect, egui::Sense::click());
+            ui.painter().rect_filled(screen_rect, 0.0, Color32::from_black_alpha(80));
+            if response.clicked() {
+                ui_state.open_recent_dialog_open = false;
+            }
+        });
+
+    // Modal window
+    egui::Area::new(egui::Id::new("open_recent_dialog"))
+        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            Frame::new()
+                .fill(Color32::WHITE)
+                .corner_radius(CornerRadius::same(12))
+                .stroke(Stroke::new(1.0, Color32::from_gray(200)))
+                .inner_margin(Margin::same(20))
+                .show(ui, |ui| {
+                ui.set_width(300.0);
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Open Recent").size(16.0).strong().color(Color32::from_gray(30)));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let close_btn = egui::Button::new(
+                                egui::RichText::new("✕").size(16.0).color(Color32::from_gray(100))
+                            ).frame(false);
+                            if ui.add(close_btn).clicked() {
+                                ui_state.open_recent_dialog_open = false;
+                            }
+                        });
+                    });
+                    
+                    ui.add_space(12.0);
+                    
+                    ui.label(egui::RichText::new("Recent documents:").size(12.0).color(Color32::from_gray(60)));
+                    
+                    if ui_state.recent_documents.is_empty() {
+                        ui.label(egui::RichText::new("No recent documents").color(Color32::from_gray(150)));
+                    } else {
+                        egui::ScrollArea::vertical()
+                            .max_height(300.0)
+                            .show(ui, |ui| {
+                                for doc_name in &ui_state.recent_documents.clone() {
+                                    if ui.button(doc_name).clicked() {
+                                        action = Some(UiAction::LoadLocal(doc_name.clone()));
+                                        ui_state.open_recent_dialog_open = false;
+                                    }
+                                }
+                            });
+                    }
+                });
+            });
+        });
+    
+    action
 }
 
 

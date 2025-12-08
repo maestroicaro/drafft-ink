@@ -5,9 +5,11 @@
 
 mod app;
 mod event_handler;
+mod shortcuts;
 mod ui;
 
 pub use app::{App, AppConfig};
+pub use shortcuts::{Shortcut, ShortcutRegistry};
 pub use ui::{render_ui, UiAction, UiState};
 
 #[cfg(target_arch = "wasm32")]

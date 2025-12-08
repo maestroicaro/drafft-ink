@@ -69,6 +69,11 @@ mod file_ops {
         None
     }
 
+    /// Load document by name (for native, just calls load_document).
+    pub fn load_document_by_name(_name: &str) -> Option<CanvasDocument> {
+        load_document()
+    }
+
     /// Export PNG to file using native file dialog.
     pub fn export_png(png_data: &[u8], name: &str) {
         let dialog = rfd::FileDialog::new()
@@ -185,6 +190,7 @@ mod file_ops {
     thread_local! {
         static STORAGE: Rc<IndexedDbStorage> = Rc::new(IndexedDbStorage::new());
         static PENDING_DOCUMENT: RefCell<Option<CanvasDocument>> = const { RefCell::new(None) };
+        static PENDING_DOCUMENT_LIST: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
     }
 
     /// Save document to IndexedDB (real persistence).
@@ -235,6 +241,54 @@ mod file_ops {
     /// Try to load the last document on startup.
     pub fn try_load_last_document() {
         load_document_async();
+    }
+
+    /// Load document by name from IndexedDB - triggers async load.
+    pub fn load_document_by_name_async(name: &str) {
+        let doc_name = name.to_string();
+        STORAGE.with(|storage| {
+            let storage = storage.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let future = storage.load(&doc_name);
+                match future.await {
+                    Ok(doc) => {
+                        log::info!("Document loaded from IndexedDB: {}", doc.name);
+                        set_pending_document(doc);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to load document '{}': {:?}", doc_name, e);
+                    }
+                }
+            });
+        });
+    }
+
+    /// List all documents in IndexedDB - triggers async list.
+    pub fn list_documents_async() {
+        STORAGE.with(|storage| {
+            let storage = storage.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let future = storage.list();
+                match future.await {
+                    Ok(docs) => {
+                        let filtered: Vec<String> = docs.into_iter()
+                            .filter(|id| id != "__last__")
+                            .collect();
+                        PENDING_DOCUMENT_LIST.with(|list| {
+                            *list.borrow_mut() = Some(filtered);
+                        });
+                    }
+                    Err(e) => {
+                        log::error!("Failed to list documents: {:?}", e);
+                    }
+                }
+            });
+        });
+    }
+
+    /// Take the pending document list.
+    pub fn take_pending_document_list() -> Option<Vec<String>> {
+        PENDING_DOCUMENT_LIST.with(|list| list.borrow_mut().take())
     }
 
     /// Download document as JSON file (export).
@@ -1569,6 +1623,12 @@ impl ApplicationHandler for App {
                     state.canvas.clear_selection();
                 }
                 
+                // Check for pending document list (WASM)
+                #[cfg(target_arch = "wasm32")]
+                if let Some(docs) = file_ops::take_pending_document_list() {
+                    state.ui_state.recent_documents = docs;
+                }
+                
                 // Check for pending pasted image (WASM)
                 #[cfg(target_arch = "wasm32")]
                 if let Some(image_shape) = file_ops::take_pending_image() {
@@ -1802,6 +1862,66 @@ impl ApplicationHandler for App {
                                             let _ = ws.send(&msg);
                                         }
                                     }
+                                }
+                            }
+                            UiAction::SaveLocal => {
+                                // Save with current document name
+                                file_ops::save_document(&state.canvas.document, &state.canvas.document.name);
+                            }
+                            UiAction::SaveLocalAs => {
+                                // Open save dialog
+                                state.ui_state.save_name_input = state.canvas.document.name.clone();
+                                state.ui_state.save_dialog_open = true;
+                            }
+                            UiAction::ShowOpenDialog => {
+                                // Open document selection dialog
+                                state.ui_state.open_dialog_open = true;
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    file_ops::list_documents_async();
+                                }
+                            }
+                            UiAction::ShowOpenRecentDialog => {
+                                // Open recent documents dialog
+                                state.ui_state.open_recent_dialog_open = true;
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    file_ops::list_documents_async();
+                                }
+                            }
+                            UiAction::SaveLocalWithName(name) => {
+                                // Save with specified name
+                                state.canvas.document.name = name.clone();
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    // For WASM, save with name as ID
+                                    let doc_id = state.canvas.document.id.clone();
+                                    state.canvas.document.id = name.clone();
+                                    file_ops::save_document(&state.canvas.document, &name);
+                                    state.canvas.document.id = doc_id; // Restore original ID
+                                }
+                                #[cfg(not(target_arch = "wasm32"))]
+                                {
+                                    file_ops::save_document(&state.canvas.document, &name);
+                                }
+                                // Add to recent documents if not already there
+                                if !state.ui_state.recent_documents.contains(&name) {
+                                    state.ui_state.recent_documents.insert(0, name);
+                                    if state.ui_state.recent_documents.len() > 10 {
+                                        state.ui_state.recent_documents.truncate(10);
+                                    }
+                                }
+                            }
+                            UiAction::LoadLocal(name) => {
+                                // Load document by name from local storage
+                                #[cfg(not(target_arch = "wasm32"))]
+                                if let Some(doc) = file_ops::load_document_by_name(&name) {
+                                    state.canvas.document = doc;
+                                    state.canvas.clear_selection();
+                                }
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    file_ops::load_document_by_name_async(&name);
                                 }
                             }
                             UiAction::SaveDocument => {
@@ -2383,6 +2503,9 @@ impl ApplicationHandler for App {
                                         }
                                     }
                                 }
+                            }
+                            UiAction::ShowShortcuts => {
+                                state.ui_state.shortcuts_modal_open = !state.ui_state.shortcuts_modal_open;
                             }
                         }
                     }
@@ -3066,6 +3189,10 @@ impl ApplicationHandler for App {
                         if has_modifier {
                             let has_shift = state.input.modifiers.shift;
                             match key_str {
+                                "a" | "A" => {
+                                    state.canvas.select_all();
+                                    log::info!("Selected all {} shapes", state.canvas.selection.len());
+                                }
                                 "s" | "S" => {
                                     file_ops::save_document(&state.canvas.document, &state.canvas.document.name);
                                 }

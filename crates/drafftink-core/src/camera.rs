@@ -140,8 +140,11 @@ mod tests {
         let camera = Camera::new();
         let screen = Point::new(100.0, 200.0);
         let world = camera.screen_to_world(screen);
-        assert!((world.x - screen.x).abs() < f64::EPSILON);
-        assert!((world.y - screen.y).abs() < f64::EPSILON);
+        // With BASE_ZOOM, screen coords are divided by zoom
+        let expected_x = screen.x / BASE_ZOOM;
+        let expected_y = screen.y / BASE_ZOOM;
+        assert!((world.x - expected_x).abs() < f64::EPSILON);
+        assert!((world.y - expected_y).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -150,8 +153,11 @@ mod tests {
         camera.offset = Vec2::new(50.0, 100.0);
         let screen = Point::new(100.0, 200.0);
         let world = camera.screen_to_world(screen);
-        assert!((world.x - 50.0).abs() < f64::EPSILON);
-        assert!((world.y - 100.0).abs() < f64::EPSILON);
+        // screen_to_world: (screen - offset) / zoom
+        let expected_x = (screen.x - 50.0) / BASE_ZOOM;
+        let expected_y = (screen.y - 100.0) / BASE_ZOOM;
+        assert!((world.x - expected_x).abs() < f64::EPSILON);
+        assert!((world.y - expected_y).abs() < f64::EPSILON);
     }
 
     #[test]
