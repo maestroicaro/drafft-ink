@@ -196,6 +196,10 @@ pub struct UiState {
     pub selected_recent_document: Option<String>,
     /// Clipboard for copied/cut shapes (JSON serialized).
     pub clipboard_shapes: Option<String>,
+    /// Last picked stroke color from color grid.
+    pub last_picked_stroke: Option<Color32>,
+    /// Last picked fill color from color grid.
+    pub last_picked_fill: Option<Color32>,
 }
 
 impl Default for UiState {
@@ -234,6 +238,8 @@ impl Default for UiState {
             recent_documents: Vec::new(),
             selected_recent_document: None,
             clipboard_shapes: None,
+            last_picked_stroke: None,
+            last_picked_fill: None,
         }
     }
 }
@@ -755,8 +761,16 @@ fn render_properties_panel(ctx: &Context, ui_state: &mut UiState) -> Option<UiAc
                             widgets_vertical_separator(ui);
                             ui.add_space(4.0);
                             
-                            // Current color (clickable to open full picker)
-                            let (clicked, rect) = color_swatch_current(ui, ui_state.stroke_color, "Current stroke");
+                            // Last picked color as quick-select (only if different from quick colors)
+                            if let Some(last) = ui_state.last_picked_stroke {
+                                let is_selected = ui_state.stroke_color == last;
+                                if color_swatch_selectable(ui, last, "Last picked", is_selected) {
+                                    action = Some(UiAction::SetStrokeColor(last));
+                                }
+                            }
+                            
+                            // Color wheel (opens full picker)
+                            let (clicked, rect) = color_swatch_current(ui, ui_state.stroke_color, "Pick color");
                             stroke_current_rect = rect;
                             if clicked {
                                 ui_state.color_popover = if ui_state.color_popover == ColorPopover::StrokeFull {
@@ -800,9 +814,17 @@ fn render_properties_panel(ctx: &Context, ui_state: &mut UiState) -> Option<UiAc
                             widgets_vertical_separator(ui);
                             ui.add_space(4.0);
                             
-                            // Current color (clickable to open full picker)
+                            // Last picked color as quick-select
+                            if let Some(last) = ui_state.last_picked_fill {
+                                let is_selected = ui_state.fill_color == Some(last);
+                                if color_swatch_selectable(ui, last, "Last picked", is_selected) {
+                                    action = Some(UiAction::SetFillColor(Some(last)));
+                                }
+                            }
+                            
+                            // Color wheel (opens full picker)
                             let current_fill = ui_state.fill_color.unwrap_or(Color32::TRANSPARENT);
-                            let (clicked, rect) = color_swatch_current(ui, current_fill, "Current fill");
+                            let (clicked, rect) = color_swatch_current(ui, current_fill, "Pick color");
                             fill_current_rect = rect;
                             if clicked {
                                 ui_state.color_popover = if ui_state.color_popover == ColorPopover::FillFull {
@@ -842,6 +864,7 @@ fn render_properties_panel(ctx: &Context, ui_state: &mut UiState) -> Option<UiAc
                 .below()
                 .show(ctx, stroke_current_rect)
             {
+                ui_state.last_picked_stroke = Some(selected_color);
                 action = Some(UiAction::SetStrokeColor(selected_color));
                 ui_state.color_popover = ColorPopover::None;
             }
@@ -854,6 +877,7 @@ fn render_properties_panel(ctx: &Context, ui_state: &mut UiState) -> Option<UiAc
             .below()
             .show(ctx, fill_current_rect)
             {
+                ui_state.last_picked_fill = Some(selected_color);
                 action = Some(UiAction::SetFillColor(Some(selected_color)));
                 ui_state.color_popover = ColorPopover::None;
             }
