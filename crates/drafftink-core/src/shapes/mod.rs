@@ -11,7 +11,7 @@ mod image;
 
 pub use rectangle::Rectangle;
 pub use ellipse::Ellipse;
-pub use line::Line;
+pub use line::{Line, PathStyle};
 pub use arrow::Arrow;
 pub use freehand::Freehand;
 pub use text::{Text, FontFamily, FontWeight};

@@ -31,6 +31,10 @@ pub struct SelectedShapeProps {
     pub is_text: bool,
     /// Is the selected shape a rectangle?
     pub is_rectangle: bool,
+    /// Is the selected shape a line?
+    pub is_line: bool,
+    /// Is the selected shape an arrow?
+    pub is_arrow: bool,
     /// Font size (for text shapes).
     pub font_size: f32,
     /// Font family (for text shapes).
@@ -39,6 +43,8 @@ pub struct SelectedShapeProps {
     pub font_weight: FontWeight,
     /// Corner radius (for rectangle shapes).
     pub corner_radius: f32,
+    /// Path style for lines/arrows (0 = Direct, 1 = Flowing, 2 = Angular).
+    pub path_style: u8,
     /// Sloppiness level (0 = Architect, 1 = Artist, 2 = Cartoonist).
     pub sloppiness: u8,
     /// Is a drawing tool active (show panel for new shapes)?
@@ -62,36 +68,40 @@ impl SelectedShapeProps {
                 has_selection: true,
                 selection_count: count,
                 is_text: true,
-                is_rectangle: false,
                 font_size: text.font_size as f32,
                 font_family: text.font_family,
                 font_weight: text.font_weight,
-                corner_radius: 0.0,
                 sloppiness,
-                is_drawing_tool: false,
-                tool_is_rectangle: false,
+                ..Default::default()
             },
             Shape::Rectangle(rect) => Self {
                 has_selection: true,
                 selection_count: count,
-                is_text: false,
                 is_rectangle: true,
-                font_size: 20.0, // Default M size
-                font_family: FontFamily::default(),
-                font_weight: FontWeight::default(),
                 corner_radius: rect.corner_radius as f32,
                 sloppiness,
-                is_drawing_tool: false,
-                tool_is_rectangle: false,
+                ..Default::default()
+            },
+            Shape::Line(line) => Self {
+                has_selection: true,
+                selection_count: count,
+                is_line: true,
+                path_style: line.path_style as u8,
+                sloppiness,
+                ..Default::default()
+            },
+            Shape::Arrow(arrow) => Self {
+                has_selection: true,
+                selection_count: count,
+                is_arrow: true,
+                path_style: arrow.path_style as u8,
+                sloppiness,
+                ..Default::default()
             },
             _ => Self {
                 has_selection: true,
                 selection_count: count,
-                is_text: false,
-                is_rectangle: false,
                 sloppiness,
-                is_drawing_tool: false,
-                tool_is_rectangle: false,
                 ..Default::default()
             },
         }
@@ -340,6 +350,8 @@ pub enum UiAction {
     ClearDocument,
     /// Set sloppiness level for selected shapes.
     SetSloppiness(u8), // 0 = Architect, 1 = Artist, 2 = Cartoonist
+    /// Set path style for selected lines/arrows.
+    SetPathStyle(u8), // 0 = Direct, 1 = Flowing, 2 = Angular
     /// Undo the last action.
     Undo,
     /// Redo the last undone action.
@@ -1149,6 +1161,30 @@ fn render_right_panel(ctx: &Context, props: &SelectedShapeProps) -> Option<UiAct
                             });
                         }
                         
+                        // Path style (for lines and arrows only)
+                        if props.is_line || props.is_arrow {
+                            ui.add_space(4.0);
+                            ui.label(egui::RichText::new("Path").size(11.0).color(Color32::from_gray(100)));
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
+                                
+                                let is_direct = props.path_style == 0;
+                                if ToggleButton::new("Direct", is_direct).show(ui) && !is_direct {
+                                    action = Some(UiAction::SetPathStyle(0));
+                                }
+                                
+                                let is_flowing = props.path_style == 1;
+                                if ToggleButton::new("Flowing", is_flowing).show(ui) && !is_flowing {
+                                    action = Some(UiAction::SetPathStyle(1));
+                                }
+                                
+                                let is_angular = props.path_style == 2;
+                                if ToggleButton::new("Angular", is_angular).show(ui) && !is_angular {
+                                    action = Some(UiAction::SetPathStyle(2));
+                                }
+                            });
+                        }
+                        
                         // Z-Order controls (only when shapes are selected, not for drawing tools)
                         if props.has_selection && !props.is_drawing_tool {
                             ui.add_space(8.0);
@@ -1286,7 +1322,7 @@ fn render_file_menu(ctx: &Context, ui_state: &mut UiState) -> Option<UiAction> {
                                 action = Some(UiAction::DownloadDocument);
                                 ui_state.menu_open = false;
                             }
-                            if menu_item(ui, "Upload JSON", "") {
+                            if menu_item(ui, "Import JSON/Excalidraw", "") {
                                 action = Some(UiAction::UploadDocument);
                                 ui_state.menu_open = false;
                             }

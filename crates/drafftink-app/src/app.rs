@@ -55,16 +55,30 @@ mod file_ops {
     pub fn load_document() -> Option<CanvasDocument> {
         let dialog = rfd::FileDialog::new()
             .set_title("Open Document")
-            .add_filter("DrafftInk Document", &["json"]);
+            .add_filter("DrafftInk Document", &["json"])
+            .add_filter("Excalidraw", &["excalidraw"]);
 
         if let Some(path) = dialog.pick_file() {
             match std::fs::read_to_string(&path) {
-                Ok(json) => match CanvasDocument::from_json(&json) {
-                    Ok(doc) => {
-                        log::info!("Loaded document from: {:?}", path);
-                        return Some(doc);
+                Ok(content) => {
+                    // Check if it's an Excalidraw file
+                    let is_excalidraw = path.extension()
+                        .map(|e| e.to_string_lossy().to_lowercase() == "excalidraw")
+                        .unwrap_or(false);
+                    
+                    let result = if is_excalidraw {
+                        CanvasDocument::from_excalidraw(&content).map_err(|e| e.to_string())
+                    } else {
+                        CanvasDocument::from_json(&content).map_err(|e| e.to_string())
+                    };
+                    
+                    match result {
+                        Ok(doc) => {
+                            log::info!("Loaded document from: {:?}", path);
+                            return Some(doc);
+                        }
+                        Err(e) => log::error!("Failed to parse document: {}", e),
                     }
-                    Err(e) => log::error!("Failed to parse document: {}", e),
                 },
                 Err(e) => log::error!("Failed to read file: {}", e),
             }
@@ -487,7 +501,7 @@ mod file_ops {
             .expect("Failed to cast to input");
 
         input.set_type("file");
-        input.set_accept(".json");
+        input.set_accept(".json,.excalidraw");
         input.style().set_property("display", "none").ok();
 
         // Add change listener to handle file selection
@@ -495,6 +509,9 @@ mod file_ops {
         let onchange = Closure::once(Box::new(move |_event: web_sys::Event| {
             if let Some(files) = input_clone.files() {
                 if let Some(file) = files.get(0) {
+                    let filename = file.name();
+                    let is_excalidraw = filename.to_lowercase().ends_with(".excalidraw");
+                    
                     // Read the file content
                     let reader = web_sys::FileReader::new().expect("Failed to create FileReader");
                     let reader_clone = reader.clone();
@@ -502,7 +519,13 @@ mod file_ops {
                     let onload = Closure::once(Box::new(move |_event: web_sys::Event| {
                         if let Ok(result) = reader_clone.result() {
                             if let Some(text) = result.as_string() {
-                                match CanvasDocument::from_json(&text) {
+                                let doc_result = if is_excalidraw {
+                                    CanvasDocument::from_excalidraw(&text).map_err(|e| e.to_string())
+                                } else {
+                                    CanvasDocument::from_json(&text).map_err(|e| e.to_string())
+                                };
+                                
+                                match doc_result {
                                     Ok(doc) => {
                                         log::info!("Document loaded: {}", doc.name);
                                         set_pending_document(doc);
@@ -2143,6 +2166,36 @@ impl ApplicationHandler for App {
                                     }
                                 }
                                 log::info!("Sloppiness: {:?}", sloppiness);
+                                // Sync property changes
+                                if has_selection && state.collab.is_in_room() {
+                                    state.collab.sync_to_crdt(&state.canvas.document);
+                                    state.collab.broadcast_sync();
+                                    if let Some(ref ws) = state.websocket {
+                                        for msg in state.collab.take_outgoing() {
+                                            let _ = ws.send(&msg);
+                                        }
+                                    }
+                                }
+                            }
+                            UiAction::SetPathStyle(level) => {
+                                use drafftink_core::shapes::PathStyle;
+                                let path_style = match level {
+                                    0 => PathStyle::Direct,
+                                    1 => PathStyle::Flowing,
+                                    _ => PathStyle::Angular,
+                                };
+                                let has_selection = !state.canvas.selection.is_empty();
+                                // Apply to selected lines/arrows
+                                for &shape_id in &state.canvas.selection.clone() {
+                                    if let Some(shape) = state.canvas.document.get_shape_mut(shape_id) {
+                                        match shape {
+                                            Shape::Line(line) => line.path_style = path_style,
+                                            Shape::Arrow(arrow) => arrow.path_style = path_style,
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                log::info!("PathStyle: {:?}", path_style);
                                 // Sync property changes
                                 if has_selection && state.collab.is_in_room() {
                                     state.collab.sync_to_crdt(&state.canvas.document);

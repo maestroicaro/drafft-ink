@@ -1,5 +1,6 @@
 //! Arrow shape.
 
+use super::line::PathStyle;
 use super::{ShapeId, ShapeStyle, ShapeTrait};
 use kurbo::{Affine, BezPath, Point, Rect, Vec2};
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,12 @@ pub struct Arrow {
     pub start: Point,
     /// End point (where the arrowhead points).
     pub end: Point,
+    /// Intermediate points (for polylines/curves).
+    #[serde(default)]
+    pub intermediate_points: Vec<Point>,
+    /// Path style (Direct, Flowing, Angular).
+    #[serde(default)]
+    pub path_style: PathStyle,
     /// Size of the arrowhead.
     pub head_size: f64,
     /// Style properties.
@@ -26,9 +33,39 @@ impl Arrow {
             id: Uuid::new_v4(),
             start,
             end,
+            intermediate_points: Vec::new(),
+            path_style: PathStyle::Direct,
             head_size: 15.0,
             style: ShapeStyle::default(),
         }
+    }
+
+    /// Create an arrow from multiple points.
+    pub fn from_points(points: Vec<Point>, path_style: PathStyle) -> Self {
+        let start = points.first().copied().unwrap_or(Point::ZERO);
+        let end = points.last().copied().unwrap_or(Point::ZERO);
+        let intermediate_points = if points.len() > 2 {
+            points[1..points.len() - 1].to_vec()
+        } else {
+            Vec::new()
+        };
+        Self {
+            id: Uuid::new_v4(),
+            start,
+            end,
+            intermediate_points,
+            path_style,
+            head_size: 15.0,
+            style: ShapeStyle::default(),
+        }
+    }
+
+    /// Get all points including start, intermediate, and end.
+    pub fn all_points(&self) -> Vec<Point> {
+        let mut pts = vec![self.start];
+        pts.extend(&self.intermediate_points);
+        pts.push(self.end);
+        pts
     }
 
     /// Get the direction vector (normalized).
@@ -57,7 +94,7 @@ impl ShapeTrait for Arrow {
     }
 
     fn bounds(&self) -> Rect {
-        // Include arrowhead in bounds
+        // Include all points and arrowhead in bounds
         let dir = self.direction();
         let perp = Vec2::new(-dir.y, dir.x);
 
@@ -74,10 +111,17 @@ impl ShapeTrait for Arrow {
             head_back.y - perp.y * self.head_size * 0.5,
         );
 
-        let min_x = self.start.x.min(self.end.x).min(head_left.x).min(head_right.x);
-        let min_y = self.start.y.min(self.end.y).min(head_left.y).min(head_right.y);
-        let max_x = self.start.x.max(self.end.x).max(head_left.x).max(head_right.x);
-        let max_y = self.start.y.max(self.end.y).max(head_left.y).max(head_right.y);
+        let points = self.all_points();
+        let mut min_x = head_left.x.min(head_right.x);
+        let mut min_y = head_left.y.min(head_right.y);
+        let mut max_x = head_left.x.max(head_right.x);
+        let mut max_y = head_left.y.max(head_right.y);
+        for p in &points {
+            min_x = min_x.min(p.x);
+            min_y = min_y.min(p.y);
+            max_x = max_x.max(p.x);
+            max_y = max_y.max(p.y);
+        }
 
         Rect::new(min_x, min_y, max_x, max_y)
     }
@@ -133,10 +177,42 @@ impl ShapeTrait for Arrow {
 
     fn to_path(&self) -> BezPath {
         let mut path = BezPath::new();
+        let points = self.all_points();
+
+        if points.len() < 2 {
+            return path;
+        }
 
         // Shaft
-        path.move_to(self.start);
-        path.line_to(self.end);
+        path.move_to(points[0]);
+        
+        match self.path_style {
+            PathStyle::Direct | PathStyle::Angular => {
+                for p in &points[1..] {
+                    path.line_to(*p);
+                }
+            }
+            PathStyle::Flowing => {
+                // Catmull-Rom spline
+                let tension = 0.5;
+                for i in 0..points.len() - 1 {
+                    let p0 = points[if i == 0 { 0 } else { i - 1 }];
+                    let p1 = points[i];
+                    let p2 = points[i + 1];
+                    let p3 = points[if i + 2 >= points.len() { points.len() - 1 } else { i + 2 }];
+                    
+                    let t1x = (p2.x - p0.x) * tension;
+                    let t1y = (p2.y - p0.y) * tension;
+                    let t2x = (p3.x - p1.x) * tension;
+                    let t2y = (p3.y - p1.y) * tension;
+                    
+                    let cp1 = Point::new(p1.x + t1x / 3.0, p1.y + t1y / 3.0);
+                    let cp2 = Point::new(p2.x - t2x / 3.0, p2.y - t2y / 3.0);
+                    
+                    path.curve_to(cp1, cp2, p2);
+                }
+            }
+        }
 
         // Arrowhead
         let dir = self.direction();
@@ -174,6 +250,9 @@ impl ShapeTrait for Arrow {
     fn transform(&mut self, affine: Affine) {
         self.start = affine * self.start;
         self.end = affine * self.end;
+        for p in &mut self.intermediate_points {
+            *p = affine * *p;
+        }
         // Scale head size based on transform
         let scale = affine.as_coeffs();
         self.head_size *= (scale[0].abs() + scale[3].abs()) / 2.0;

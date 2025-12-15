@@ -5,7 +5,19 @@ use kurbo::{Affine, BezPath, Line as KurboLine, Point, Rect};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// A line segment.
+/// Path style for lines and arrows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PathStyle {
+    /// Straight line segments (sharp corners).
+    #[default]
+    Direct,
+    /// Smooth bezier curves through points.
+    Flowing,
+    /// Right-angle connectors (elbow).
+    Angular,
+}
+
+/// A line segment or polyline with optional bezier smoothing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Line {
     pub(crate) id: ShapeId,
@@ -13,6 +25,12 @@ pub struct Line {
     pub start: Point,
     /// End point.
     pub end: Point,
+    /// Intermediate points (for polylines/curves).
+    #[serde(default)]
+    pub intermediate_points: Vec<Point>,
+    /// Path style (Direct, Flowing, Angular).
+    #[serde(default)]
+    pub path_style: PathStyle,
     /// Style properties.
     pub style: ShapeStyle,
 }
@@ -24,8 +42,37 @@ impl Line {
             id: Uuid::new_v4(),
             start,
             end,
+            intermediate_points: Vec::new(),
+            path_style: PathStyle::Direct,
             style: ShapeStyle::default(),
         }
+    }
+
+    /// Create a polyline from multiple points.
+    pub fn from_points(points: Vec<Point>, path_style: PathStyle) -> Self {
+        let start = points.first().copied().unwrap_or(Point::ZERO);
+        let end = points.last().copied().unwrap_or(Point::ZERO);
+        let intermediate_points = if points.len() > 2 {
+            points[1..points.len() - 1].to_vec()
+        } else {
+            Vec::new()
+        };
+        Self {
+            id: Uuid::new_v4(),
+            start,
+            end,
+            intermediate_points,
+            path_style,
+            style: ShapeStyle::default(),
+        }
+    }
+
+    /// Get all points including start, intermediate, and end.
+    pub fn all_points(&self) -> Vec<Point> {
+        let mut pts = vec![self.start];
+        pts.extend(&self.intermediate_points);
+        pts.push(self.end);
+        pts
     }
 
     /// Get the length of the line.
@@ -55,12 +102,10 @@ impl ShapeTrait for Line {
     }
 
     fn bounds(&self) -> Rect {
-        Rect::new(
-            self.start.x.min(self.end.x),
-            self.start.y.min(self.end.y),
-            self.start.x.max(self.end.x),
-            self.start.y.max(self.end.y),
-        )
+        let points = self.all_points();
+        let (min_x, max_x) = points.iter().fold((f64::MAX, f64::MIN), |(mn, mx), p| (mn.min(p.x), mx.max(p.x)));
+        let (min_y, max_y) = points.iter().fold((f64::MAX, f64::MIN), |(mn, mx), p| (mn.min(p.y), mx.max(p.y)));
+        Rect::new(min_x, min_y, max_x, max_y)
     }
 
     fn hit_test(&self, point: Point, tolerance: f64) -> bool {
@@ -88,8 +133,42 @@ impl ShapeTrait for Line {
 
     fn to_path(&self) -> BezPath {
         let mut path = BezPath::new();
-        path.move_to(self.start);
-        path.line_to(self.end);
+        let points = self.all_points();
+        
+        if points.len() < 2 {
+            return path;
+        }
+        
+        path.move_to(points[0]);
+        
+        match self.path_style {
+            PathStyle::Direct | PathStyle::Angular => {
+                // Simple polyline (Angular already has right-angle points from excalidraw)
+                for p in &points[1..] {
+                    path.line_to(*p);
+                }
+            }
+            PathStyle::Flowing => {
+                // Catmull-Rom spline converted to cubic bezier
+                let tension = 0.5;
+                for i in 0..points.len() - 1 {
+                    let p0 = points[if i == 0 { 0 } else { i - 1 }];
+                    let p1 = points[i];
+                    let p2 = points[i + 1];
+                    let p3 = points[if i + 2 >= points.len() { points.len() - 1 } else { i + 2 }];
+                    
+                    let t1x = (p2.x - p0.x) * tension;
+                    let t1y = (p2.y - p0.y) * tension;
+                    let t2x = (p3.x - p1.x) * tension;
+                    let t2y = (p3.y - p1.y) * tension;
+                    
+                    let cp1 = Point::new(p1.x + t1x / 3.0, p1.y + t1y / 3.0);
+                    let cp2 = Point::new(p2.x - t2x / 3.0, p2.y - t2y / 3.0);
+                    
+                    path.curve_to(cp1, cp2, p2);
+                }
+            }
+        }
         path
     }
 
@@ -104,6 +183,9 @@ impl ShapeTrait for Line {
     fn transform(&mut self, affine: Affine) {
         self.start = affine * self.start;
         self.end = affine * self.end;
+        for p in &mut self.intermediate_points {
+            *p = affine * *p;
+        }
     }
 
     fn clone_box(&self) -> Box<dyn ShapeTrait + Send + Sync> {
