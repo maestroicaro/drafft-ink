@@ -774,7 +774,7 @@ impl VelloRenderer {
     fn render_shape_handles(&mut self, shape: &Shape, transform: Affine) {
         let handles = get_handles(shape);
         // Scale handle size inversely with zoom to maintain constant screen size
-        let handle_size = 8.0 / self.zoom;
+        let handle_size = 16.0 / self.zoom;
         let stroke_width = 1.0 / self.zoom;
         let dash_len = 4.0 / self.zoom;
 
@@ -1271,7 +1271,7 @@ impl VelloRenderer {
 
     #[allow(dead_code)]
     fn render_selection_handles(&mut self, bounds: Rect, transform: Affine) {
-        let handle_size = 8.0;
+        let handle_size = 16.0;
         let stroke = Stroke::new(2.0);
 
         // Selection rectangle

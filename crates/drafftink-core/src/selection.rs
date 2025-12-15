@@ -5,9 +5,9 @@ use kurbo::{Point, Rect};
 use serde::{Deserialize, Serialize};
 
 /// Handle size in screen pixels.
-pub const HANDLE_SIZE: f64 = 8.0;
+pub const HANDLE_SIZE: f64 = 16.0;
 /// Handle hit tolerance in screen pixels.
-pub const HANDLE_HIT_TOLERANCE: f64 = 12.0;
+pub const HANDLE_HIT_TOLERANCE: f64 = 24.0;
 
 /// Type of selection handle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
