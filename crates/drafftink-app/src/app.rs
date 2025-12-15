@@ -3566,8 +3566,35 @@ impl ApplicationHandler for App {
                                     }
                                 }
                                 "Escape" => {
-                                    state.canvas.tool_manager.cancel();
-                                    state.canvas.clear_selection();
+                                    // Skip if egui is handling this (e.g., closing its own dialogs)
+                                    if egui_wants_input {
+                                        return;
+                                    }
+                                    // First, close any open dialogs/popovers
+                                    let had_open_dialog = 
+                                        state.ui_state.color_popover != crate::ui::ColorPopover::None ||
+                                        state.ui_state.menu_open ||
+                                        state.ui_state.collab_modal_open ||
+                                        state.ui_state.shortcuts_modal_open ||
+                                        state.ui_state.save_dialog_open ||
+                                        state.ui_state.open_dialog_open ||
+                                        state.ui_state.open_recent_dialog_open;
+                                    
+                                    if had_open_dialog {
+                                        state.ui_state.color_popover = crate::ui::ColorPopover::None;
+                                        state.ui_state.menu_open = false;
+                                        state.ui_state.collab_modal_open = false;
+                                        state.ui_state.shortcuts_modal_open = false;
+                                        state.ui_state.save_dialog_open = false;
+                                        state.ui_state.open_dialog_open = false;
+                                        state.ui_state.open_recent_dialog_open = false;
+                                    } else {
+                                        // No dialog open - switch to Select tool
+                                        state.canvas.tool_manager.cancel();
+                                        state.canvas.clear_selection();
+                                        state.canvas.set_tool(ToolKind::Select);
+                                        state.ui_state.current_tool = ToolKind::Select;
+                                    }
                                 }
                                 _ => {}
                             }
