@@ -2,7 +2,7 @@
 
 use loro::{LoroMap, LoroResult, LoroValue, LoroList, LoroMapValue};
 use crate::shapes::{
-    Shape, ShapeStyle, SerializableColor, Sloppiness, ShapeTrait,
+    Shape, ShapeStyle, SerializableColor, Sloppiness, ShapeTrait, FillPattern,
     Rectangle, Ellipse, Line, Arrow, Freehand, Text, FontFamily, FontWeight, Group,
     Image, ImageFormat, PathStyle,
 };
@@ -37,6 +37,7 @@ const KEY_FILL_G: &str = "fill_g";
 const KEY_FILL_B: &str = "fill_b";
 const KEY_FILL_A: &str = "fill_a";
 const KEY_HAS_FILL: &str = "has_fill";
+const KEY_FILL_PATTERN: &str = "fill_pattern";
 const KEY_SLOPPINESS: &str = "sloppiness";
 const KEY_SEED: &str = "seed";
 
@@ -218,6 +219,7 @@ fn style_to_loro(style: &ShapeStyle, map: &LoroMap) -> LoroResult<()> {
     map.insert(KEY_STROKE_WIDTH, style.stroke_width)?;
     map.insert(KEY_SLOPPINESS, sloppiness_to_i64(style.sloppiness))?;
     map.insert(KEY_SEED, style.seed as i64)?;
+    map.insert(KEY_FILL_PATTERN, fill_pattern_to_i64(style.fill_pattern))?;
     
     if let Some(fill) = style.fill_color {
         map.insert(KEY_HAS_FILL, true)?;
@@ -373,6 +375,7 @@ fn style_from_loro(map: &LoroMapValue) -> Option<ShapeStyle> {
     let stroke_a = get_i64(map, KEY_STROKE_A)? as u8;
     let stroke_width = get_double(map, KEY_STROKE_WIDTH)?;
     let sloppiness = get_i64(map, KEY_SLOPPINESS).map(i64_to_sloppiness).unwrap_or_default();
+    let fill_pattern = get_i64(map, KEY_FILL_PATTERN).map(i64_to_fill_pattern).unwrap_or_default();
     let seed = get_i64(map, KEY_SEED).map(|v| v as u32).unwrap_or_else(|| {
         use std::sync::atomic::{AtomicU32, Ordering};
         static SEED_COUNTER: AtomicU32 = AtomicU32::new(1);
@@ -399,6 +402,7 @@ fn style_from_loro(map: &LoroMapValue) -> Option<ShapeStyle> {
         stroke_color: SerializableColor::new(stroke_r, stroke_g, stroke_b, stroke_a),
         stroke_width,
         fill_color,
+        fill_pattern,
         sloppiness,
         seed,
     })
@@ -485,5 +489,29 @@ fn i64_to_image_format(v: i64) -> ImageFormat {
         0 => ImageFormat::Png,
         1 => ImageFormat::Jpeg,
         _ => ImageFormat::WebP,
+    }
+}
+
+fn fill_pattern_to_i64(p: FillPattern) -> i64 {
+    match p {
+        FillPattern::Solid => 0,
+        FillPattern::Hachure => 1,
+        FillPattern::ZigZag => 2,
+        FillPattern::CrossHatch => 3,
+        FillPattern::Dots => 4,
+        FillPattern::Dashed => 5,
+        FillPattern::ZigZagLine => 6,
+    }
+}
+
+fn i64_to_fill_pattern(v: i64) -> FillPattern {
+    match v {
+        0 => FillPattern::Solid,
+        1 => FillPattern::Hachure,
+        2 => FillPattern::ZigZag,
+        3 => FillPattern::CrossHatch,
+        4 => FillPattern::Dots,
+        5 => FillPattern::Dashed,
+        _ => FillPattern::ZigZagLine,
     }
 }

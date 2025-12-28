@@ -264,7 +264,7 @@ impl CanvasDocument {
 
     /// Import from Excalidraw JSON format.
     pub fn from_excalidraw(json: &str) -> Result<Self, String> {
-        use crate::shapes::{Arrow, Ellipse, Freehand, Line, PathStyle, Rectangle, ShapeStyle, Sloppiness, Text};
+        use crate::shapes::{Arrow, Ellipse, Freehand, Line, PathStyle, Rectangle, ShapeStyle, Sloppiness, Text, FillPattern};
         
         let data: serde_json::Value = serde_json::from_str(json)
             .map_err(|e| format!("Invalid JSON: {}", e))?;
@@ -308,6 +308,7 @@ impl CanvasDocument {
                 stroke_color,
                 stroke_width,
                 fill_color,
+                fill_pattern: FillPattern::default(),
                 sloppiness,
                 seed: elem.get("seed").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
             };

@@ -105,6 +105,41 @@ impl Sloppiness {
     }
 }
 
+/// Fill pattern style for shapes (inspired by roughjs/roughr).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum FillPattern {
+    /// Solid fill color.
+    #[default]
+    Solid,
+    /// Parallel diagonal lines.
+    Hachure,
+    /// Zigzag pattern.
+    ZigZag,
+    /// Cross-hatched lines.
+    CrossHatch,
+    /// Dot pattern.
+    Dots,
+    /// Dashed lines.
+    Dashed,
+    /// Zigzag line pattern.
+    ZigZagLine,
+}
+
+impl FillPattern {
+    /// Cycle to the next fill pattern.
+    pub fn next(self) -> Self {
+        match self {
+            FillPattern::Solid => FillPattern::Hachure,
+            FillPattern::Hachure => FillPattern::ZigZag,
+            FillPattern::ZigZag => FillPattern::CrossHatch,
+            FillPattern::CrossHatch => FillPattern::Dots,
+            FillPattern::Dots => FillPattern::Dashed,
+            FillPattern::Dashed => FillPattern::ZigZagLine,
+            FillPattern::ZigZagLine => FillPattern::Solid,
+        }
+    }
+}
+
 /// Style properties for shapes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShapeStyle {
@@ -114,6 +149,9 @@ pub struct ShapeStyle {
     pub stroke_width: f64,
     /// Fill color (None = no fill).
     pub fill_color: Option<SerializableColor>,
+    /// Fill pattern style.
+    #[serde(default)]
+    pub fill_pattern: FillPattern,
     /// Sloppiness level for hand-drawn effect.
     pub sloppiness: Sloppiness,
     /// Random seed for hand-drawn effect (ensures consistent rendering across transforms).
@@ -171,6 +209,7 @@ impl Default for ShapeStyle {
             stroke_color: SerializableColor::black(),
             stroke_width: 2.0,
             fill_color: None,
+            fill_pattern: FillPattern::default(),
             sloppiness: Sloppiness::default(),
             seed: generate_seed(),
         }

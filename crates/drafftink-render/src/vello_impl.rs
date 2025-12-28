@@ -7,7 +7,7 @@ use parley::layout::PositionedLayoutItem;
 use parley::{FontContext, LayoutContext};
 use peniko::{Brush, Color, Fill};
 use drafftink_core::selection::{get_handles, Handle, HandleKind};
-use drafftink_core::shapes::{Shape, ShapeStyle, ShapeTrait};
+use drafftink_core::shapes::{Shape, ShapeStyle, ShapeTrait, FillPattern};
 use drafftink_core::snap::{SnapTarget, SnapTargetKind};
 use vello::Scene;
 
@@ -207,6 +207,146 @@ fn apply_hand_drawn_effect(path: &BezPath, roughness: f64, zoom: f64, seed: u32,
     result
 }
 
+/// Generate fill pattern lines within the given bounds.
+fn generate_fill_pattern(pattern: FillPattern, bounds: Rect, stroke_width: f64, seed: u32) -> BezPath {
+    let mut path = BezPath::new();
+    let gap = stroke_width * 4.0; // Spacing between pattern lines
+    let mut rng = SimpleRng::new(seed);
+    
+    match pattern {
+        FillPattern::Solid => {} // Handled separately
+        FillPattern::Hachure => {
+            // Diagonal lines from top-left to bottom-right
+            let diag = bounds.width() + bounds.height();
+            let mut offset = -bounds.height();
+            while offset < diag {
+                let x0 = bounds.x0 + offset;
+                let y0 = bounds.y0;
+                let x1 = bounds.x0 + offset - bounds.height();
+                let y1 = bounds.y1;
+                path.move_to(Point::new(x0.max(bounds.x0).min(bounds.x1), y0.max(bounds.y0).min(bounds.y1)));
+                path.line_to(Point::new(x1.max(bounds.x0).min(bounds.x1), y1.max(bounds.y0).min(bounds.y1)));
+                offset += gap;
+            }
+        }
+        FillPattern::CrossHatch => {
+            // Diagonal lines in both directions
+            let diag = bounds.width() + bounds.height();
+            // Forward diagonals
+            let mut offset = -bounds.height();
+            while offset < diag {
+                let x0 = bounds.x0 + offset;
+                let y0 = bounds.y0;
+                let x1 = bounds.x0 + offset - bounds.height();
+                let y1 = bounds.y1;
+                path.move_to(Point::new(x0.max(bounds.x0).min(bounds.x1), y0));
+                path.line_to(Point::new(x1.max(bounds.x0).min(bounds.x1), y1));
+                offset += gap;
+            }
+            // Backward diagonals
+            offset = -bounds.height();
+            while offset < diag {
+                let x0 = bounds.x1 - offset;
+                let y0 = bounds.y0;
+                let x1 = bounds.x1 - offset + bounds.height();
+                let y1 = bounds.y1;
+                path.move_to(Point::new(x0.max(bounds.x0).min(bounds.x1), y0));
+                path.line_to(Point::new(x1.max(bounds.x0).min(bounds.x1), y1));
+                offset += gap;
+            }
+        }
+        FillPattern::ZigZag => {
+            // Zigzag horizontal lines
+            let mut y = bounds.y0 + gap;
+            let zig_size = gap * 0.5;
+            while y < bounds.y1 {
+                let mut x = bounds.x0;
+                path.move_to(Point::new(x, y));
+                let mut up = true;
+                while x < bounds.x1 {
+                    x += zig_size;
+                    let ny = if up { y - zig_size * 0.5 } else { y + zig_size * 0.5 };
+                    path.line_to(Point::new(x.min(bounds.x1), ny.max(bounds.y0).min(bounds.y1)));
+                    up = !up;
+                }
+                y += gap;
+            }
+        }
+        FillPattern::Dots => {
+            // Grid of small dots
+            let dot_gap = gap * 1.5;
+            let mut y = bounds.y0 + dot_gap / 2.0;
+            while y < bounds.y1 {
+                let mut x = bounds.x0 + dot_gap / 2.0;
+                while x < bounds.x1 {
+                    // Small circle approximation
+                    let r = stroke_width * 0.8;
+                    path.move_to(Point::new(x + r, y));
+                    path.curve_to(
+                        Point::new(x + r, y + r * 0.55),
+                        Point::new(x + r * 0.55, y + r),
+                        Point::new(x, y + r),
+                    );
+                    path.curve_to(
+                        Point::new(x - r * 0.55, y + r),
+                        Point::new(x - r, y + r * 0.55),
+                        Point::new(x - r, y),
+                    );
+                    path.curve_to(
+                        Point::new(x - r, y - r * 0.55),
+                        Point::new(x - r * 0.55, y - r),
+                        Point::new(x, y - r),
+                    );
+                    path.curve_to(
+                        Point::new(x + r * 0.55, y - r),
+                        Point::new(x + r, y - r * 0.55),
+                        Point::new(x + r, y),
+                    );
+                    x += dot_gap;
+                }
+                y += dot_gap;
+            }
+        }
+        FillPattern::Dashed => {
+            // Horizontal dashed lines
+            let dash_len = gap * 1.5;
+            let mut y = bounds.y0 + gap;
+            while y < bounds.y1 {
+                let mut x = bounds.x0;
+                let mut draw = true;
+                while x < bounds.x1 {
+                    if draw {
+                        path.move_to(Point::new(x, y));
+                        path.line_to(Point::new((x + dash_len).min(bounds.x1), y));
+                    }
+                    x += dash_len;
+                    draw = !draw;
+                }
+                y += gap;
+            }
+        }
+        FillPattern::ZigZagLine => {
+            // Continuous zigzag pattern filling the shape
+            let zig_size = gap * 0.7;
+            let mut y = bounds.y0 + gap;
+            while y < bounds.y1 {
+                path.move_to(Point::new(bounds.x0, y));
+                let mut x = bounds.x0;
+                let mut up = rng.next_u32() % 2 == 0;
+                while x < bounds.x1 {
+                    x += zig_size;
+                    let offset = if up { -zig_size * 0.4 } else { zig_size * 0.4 };
+                    path.line_to(Point::new(x.min(bounds.x1), (y + offset).max(bounds.y0).min(bounds.y1)));
+                    up = !up;
+                }
+                y += gap;
+            }
+        }
+    }
+    
+    path
+}
+
 impl VelloRenderer {
     /// Create a new Vello renderer.
     pub fn new() -> Self {
@@ -392,20 +532,39 @@ impl VelloRenderer {
         let roughness = style.sloppiness.roughness();
         let seed = style.seed;
         
-        // Fill if present (use clean path for fill)
+        // Fill if present
         if let Some(fill_color) = style.fill() {
             let fill_path = if roughness > 0.0 {
                 apply_hand_drawn_effect(path, roughness * 0.3, self.zoom, seed, 0)
             } else {
                 path.clone()
             };
-            self.scene.fill(
-                Fill::NonZero,
-                transform,
-                fill_color,
-                None,
-                &fill_path,
-            );
+            
+            match style.fill_pattern {
+                FillPattern::Solid => {
+                    self.scene.fill(Fill::NonZero, transform, fill_color, None, &fill_path);
+                }
+                _ => {
+                    // For patterns, first fill with a lighter version of the color as background
+                    let bg_color = Color::from_rgba8(
+                        fill_color.to_rgba8().r,
+                        fill_color.to_rgba8().g,
+                        fill_color.to_rgba8().b,
+                        (fill_color.to_rgba8().a as f32 * 0.15) as u8,
+                    );
+                    self.scene.fill(Fill::NonZero, transform, bg_color, None, &fill_path);
+                    
+                    // Then draw the pattern lines
+                    let bounds = path.bounding_box();
+                    let pattern_path = generate_fill_pattern(style.fill_pattern, bounds, style.stroke_width, seed);
+                    
+                    // Clip pattern to shape by drawing with the fill path as clip
+                    // For simplicity, we'll just stroke the pattern - vello doesn't have easy clipping
+                    // so we rely on the pattern being generated within bounds
+                    let pattern_stroke = Stroke::new(style.stroke_width * 0.5);
+                    self.scene.stroke(&pattern_stroke, transform, fill_color, None, &pattern_path);
+                }
+            }
         }
 
         // For hand-drawn style, draw multiple strokes like rough.js
