@@ -560,9 +560,11 @@ mod tests {
         let line = Line::new(Point::new(0.0, 0.0), Point::new(100.0, 100.0));
         let handles = get_handles(&Shape::Line(line));
         
-        assert_eq!(handles.len(), 2);
+        // 2 endpoints + 1 segment midpoint
+        assert_eq!(handles.len(), 3);
         assert!(matches!(handles[0].kind, HandleKind::Endpoint(0)));
         assert!(matches!(handles[1].kind, HandleKind::Endpoint(1)));
+        assert!(matches!(handles[2].kind, HandleKind::SegmentMidpoint(0)));
     }
 
     #[test]
