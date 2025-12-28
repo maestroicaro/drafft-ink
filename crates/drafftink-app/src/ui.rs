@@ -4,7 +4,7 @@ use egui::{
     include_image, Align2, Color32, Context, CornerRadius, Frame, ImageSource, Margin,
     Pos2, Rect, Stroke, Vec2,
 };
-use drafftink_core::shapes::{FontFamily, FontWeight, Shape, ShapeStyle};
+use drafftink_core::shapes::{FontFamily, FontWeight, Shape, ShapeStyle, FillPattern};
 use drafftink_core::snap::SnapMode;
 use drafftink_core::sync::ConnectionState;
 use drafftink_core::tools::ToolKind;
@@ -49,6 +49,10 @@ pub struct SelectedShapeProps {
     pub path_style: u8,
     /// Sloppiness level (0 = Architect, 1 = Artist, 2 = Cartoonist).
     pub sloppiness: u8,
+    /// Fill pattern (0 = Solid, 1 = Hachure, etc).
+    pub fill_pattern: u8,
+    /// Has fill color set.
+    pub has_fill: bool,
     /// Is a drawing tool active (show panel for new shapes)?
     pub is_drawing_tool: bool,
     /// Is the active tool for rectangles?
@@ -66,6 +70,8 @@ impl SelectedShapeProps {
     /// Create from a selected shape with a specific count.
     pub fn from_shape_with_count(shape: &Shape, count: usize) -> Self {
         let sloppiness = shape.style().sloppiness as u8;
+        let fill_pattern = shape.style().fill_pattern as u8;
+        let has_fill = shape.style().fill_color.is_some();
         
         match shape {
             Shape::Text(text) => Self {
@@ -76,6 +82,8 @@ impl SelectedShapeProps {
                 font_family: text.font_family,
                 font_weight: text.font_weight,
                 sloppiness,
+                fill_pattern,
+                has_fill,
                 ..Default::default()
             },
             Shape::Rectangle(rect) => Self {
@@ -84,6 +92,8 @@ impl SelectedShapeProps {
                 is_rectangle: true,
                 corner_radius: rect.corner_radius as f32,
                 sloppiness,
+                fill_pattern,
+                has_fill,
                 ..Default::default()
             },
             Shape::Line(line) => Self {
@@ -92,6 +102,8 @@ impl SelectedShapeProps {
                 is_line: true,
                 path_style: line.path_style as u8,
                 sloppiness,
+                fill_pattern,
+                has_fill,
                 ..Default::default()
             },
             Shape::Arrow(arrow) => Self {
@@ -100,12 +112,16 @@ impl SelectedShapeProps {
                 is_arrow: true,
                 path_style: arrow.path_style as u8,
                 sloppiness,
+                fill_pattern,
+                has_fill,
                 ..Default::default()
             },
             _ => Self {
                 has_selection: true,
                 selection_count: count,
                 sloppiness,
+                fill_pattern,
+                has_fill,
                 ..Default::default()
             },
         }
@@ -122,6 +138,8 @@ impl SelectedShapeProps {
             is_freehand: tool == ToolKind::Freehand,
             calligraphy_mode: calligraphy,
             sloppiness: ui_state.sloppiness as u8,
+            fill_pattern: ui_state.fill_pattern as u8,
+            has_fill: ui_state.fill_color.is_some(),
             path_style: ui_state.path_style,
             corner_radius: ui_state.corner_radius,
             ..Default::default()
@@ -188,6 +206,8 @@ pub struct UiState {
     pub export_scale: u8,
     /// Current sloppiness level for new shapes.
     pub sloppiness: drafftink_core::shapes::Sloppiness,
+    /// Current fill pattern for new shapes.
+    pub fill_pattern: FillPattern,
     /// Current corner radius for new rectangles.
     pub corner_radius: f32,
     /// Current path style for new lines/arrows (0=Direct, 1=Flowing, 2=Angular).
@@ -251,6 +271,7 @@ impl Default for UiState {
             angle_snap_enabled: false,
             export_scale: 2, // Default to 2x for good quality
             sloppiness: drafftink_core::shapes::Sloppiness::Artist,
+            fill_pattern: FillPattern::Solid,
             corner_radius: 0.0, // Sharp corners by default
             path_style: 0, // Direct by default
             // Collaboration defaults
@@ -287,6 +308,7 @@ impl UiState {
         self.fill_color = style.fill_color.map(|fc| {
             Color32::from_rgba_unmultiplied(fc.r, fc.g, fc.b, fc.a)
         });
+        self.fill_pattern = style.fill_pattern;
         self.sloppiness = style.sloppiness;
     }
 
@@ -305,6 +327,7 @@ impl UiState {
             fill_color: self.fill_color.map(|c| {
                 SerializableColor::new(c.r(), c.g(), c.b(), c.a())
             }),
+            fill_pattern: self.fill_pattern,
             sloppiness: self.sloppiness,
             ..ShapeStyle::default() // Generates a new random seed
         }
@@ -374,6 +397,8 @@ pub enum UiAction {
     ClearDocument,
     /// Set sloppiness level for selected shapes.
     SetSloppiness(u8), // 0 = Architect, 1 = Artist, 2 = Cartoonist
+    /// Set fill pattern for selected shapes.
+    SetFillPattern(u8), // 0 = Solid, 1 = Hachure, 2 = ZigZag, 3 = CrossHatch, 4 = Dots, 5 = Dashed, 6 = ZigZagLine
     /// Set path style for selected lines/arrows.
     SetPathStyle(u8), // 0 = Direct, 1 = Flowing, 2 = Angular
     /// Undo the last action.
@@ -1189,6 +1214,27 @@ fn render_right_panel(ctx: &Context, props: &SelectedShapeProps) -> Option<UiAct
                                 let is_drunk = props.sloppiness == 3;
                                 if ToggleButton::new("Drunk", is_drunk).show(ui) && !is_drunk {
                                     action = Some(UiAction::SetSloppiness(3));
+                                }
+                            });
+                        }
+                        
+                        // Fill pattern (only for shapes with fill, not lines/arrows/freehand)
+                        if props.has_fill && !props.is_line && !props.is_arrow && !props.is_freehand {
+                            ui.add_space(4.0);
+                            ui.label(egui::RichText::new("Fill Pattern").size(11.0).color(Color32::from_gray(100)));
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
+                                let patterns = [
+                                    (0u8, "Solid"),
+                                    (1, "Hatch"),
+                                    (3, "Cross"),
+                                    (4, "Dots"),
+                                ];
+                                for (idx, name) in patterns {
+                                    let is_selected = props.fill_pattern == idx;
+                                    if ToggleButton::new(name, is_selected).show(ui) && !is_selected {
+                                        action = Some(UiAction::SetFillPattern(idx));
+                                    }
                                 }
                             });
                         }

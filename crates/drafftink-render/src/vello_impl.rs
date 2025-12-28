@@ -210,8 +210,10 @@ fn apply_hand_drawn_effect(path: &BezPath, roughness: f64, zoom: f64, seed: u32,
 
 /// Generate fill pattern lines within the given bounds using roughr.
 fn generate_fill_pattern(pattern: FillPattern, bounds: Rect, stroke_width: f64, seed: u32) -> BezPath {
+    use roughr::core::{OpSetType, OpType};
+    
     let fill_style = match pattern {
-        FillPattern::Solid => return BezPath::new(), // Handled separately
+        FillPattern::Solid => return BezPath::new(),
         FillPattern::Hachure => FillStyle::Hachure,
         FillPattern::ZigZag => FillStyle::ZigZag,
         FillPattern::CrossHatch => FillStyle::CrossHatch,
@@ -220,9 +222,12 @@ fn generate_fill_pattern(pattern: FillPattern, bounds: Rect, stroke_width: f64, 
         FillPattern::ZigZagLine => FillStyle::ZigZagLine,
     };
     
+    let fill_color: roughr::Srgba = roughr::Srgba::new(0.0, 0.0, 0.0, 1.0);
     let options = OptionsBuilder::default()
         .seed(seed as u64)
         .fill_style(fill_style)
+        .fill(fill_color)
+        .stroke(fill_color)
         .fill_weight((stroke_width * 0.5) as f32)
         .hachure_gap((stroke_width * 4.0) as f32)
         .build()
@@ -231,13 +236,27 @@ fn generate_fill_pattern(pattern: FillPattern, bounds: Rect, stroke_width: f64, 
     let generator = roughr::generator::Generator::default();
     let drawing = generator.rectangle::<f64>(bounds.x0, bounds.y0, bounds.width(), bounds.height(), &Some(options));
     
-    // Extract fill paths from the drawing using to_paths
-    let paths = roughr::generator::Generator::to_paths(drawing);
+    // Extract FillSketch ops directly from drawable.sets (like the official vello example)
     let mut path = BezPath::new();
-    for info in paths {
-        // Parse the SVG path data
-        if let Ok(svg_path) = kurbo::BezPath::from_svg(&info.d) {
-            path.extend(svg_path.iter());
+    for set in drawing.sets.iter() {
+        if set.op_set_type == OpSetType::FillSketch {
+            for op in set.ops.iter() {
+                match op.op {
+                    OpType::Move => {
+                        path.move_to(Point::new(op.data[0], op.data[1]));
+                    }
+                    OpType::LineTo => {
+                        path.line_to(Point::new(op.data[0], op.data[1]));
+                    }
+                    OpType::BCurveTo => {
+                        path.curve_to(
+                            Point::new(op.data[0], op.data[1]),
+                            Point::new(op.data[2], op.data[3]),
+                            Point::new(op.data[4], op.data[5]),
+                        );
+                    }
+                }
+            }
         }
     }
     path
@@ -450,15 +469,15 @@ impl VelloRenderer {
                     );
                     self.scene.fill(Fill::NonZero, transform, bg_color, None, &fill_path);
                     
-                    // Then draw the pattern lines
+                    // Then draw the pattern lines clipped to shape
                     let bounds = path.bounding_box();
                     let pattern_path = generate_fill_pattern(style.fill_pattern, bounds, style.stroke_width, seed);
                     
-                    // Clip pattern to shape by drawing with the fill path as clip
-                    // For simplicity, we'll just stroke the pattern - vello doesn't have easy clipping
-                    // so we rely on the pattern being generated within bounds
+                    // Clip pattern to shape boundary
+                    self.scene.push_clip_layer(transform, &fill_path);
                     let pattern_stroke = Stroke::new(style.stroke_width * 0.5);
                     self.scene.stroke(&pattern_stroke, transform, fill_color, None, &pattern_path);
+                    self.scene.pop_layer();
                 }
             }
         }

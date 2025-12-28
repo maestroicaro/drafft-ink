@@ -2177,6 +2177,35 @@ impl ApplicationHandler for App {
                                     }
                                 }
                             }
+                            UiAction::SetFillPattern(level) => {
+                                use drafftink_core::shapes::FillPattern;
+                                let fill_pattern = match level {
+                                    0 => FillPattern::Solid,
+                                    1 => FillPattern::Hachure,
+                                    2 => FillPattern::ZigZag,
+                                    3 => FillPattern::CrossHatch,
+                                    4 => FillPattern::Dots,
+                                    5 => FillPattern::Dashed,
+                                    _ => FillPattern::ZigZagLine,
+                                };
+                                state.ui_state.fill_pattern = fill_pattern;
+                                let has_selection = !state.canvas.selection.is_empty();
+                                for &shape_id in &state.canvas.selection.clone() {
+                                    if let Some(shape) = state.canvas.document.get_shape_mut(shape_id) {
+                                        shape.style_mut().fill_pattern = fill_pattern;
+                                    }
+                                }
+                                log::info!("Fill pattern: {:?}", fill_pattern);
+                                if has_selection && state.collab.is_in_room() {
+                                    state.collab.sync_to_crdt(&state.canvas.document);
+                                    state.collab.broadcast_sync();
+                                    if let Some(ref ws) = state.websocket {
+                                        for msg in state.collab.take_outgoing() {
+                                            let _ = ws.send(&msg);
+                                        }
+                                    }
+                                }
+                            }
                             UiAction::SetPathStyle(level) => {
                                 use drafftink_core::shapes::PathStyle;
                                 let path_style = match level {
