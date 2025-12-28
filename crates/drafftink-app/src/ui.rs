@@ -110,6 +110,23 @@ impl SelectedShapeProps {
             },
         }
     }
+    
+    /// Create props for drawing tool mode (no selection, configuring new shapes).
+    pub fn for_tool(tool: drafftink_core::tools::ToolKind, ui_state: &UiState, calligraphy: bool) -> Self {
+        use drafftink_core::tools::ToolKind;
+        Self {
+            is_drawing_tool: true,
+            tool_is_rectangle: tool == ToolKind::Rectangle,
+            is_line: tool == ToolKind::Line,
+            is_arrow: tool == ToolKind::Arrow,
+            is_freehand: tool == ToolKind::Freehand,
+            calligraphy_mode: calligraphy,
+            sloppiness: ui_state.sloppiness as u8,
+            path_style: ui_state.path_style,
+            corner_radius: ui_state.corner_radius,
+            ..Default::default()
+        }
+    }
 }
 
 // Tailwind colors are now imported from drafftink_widgets

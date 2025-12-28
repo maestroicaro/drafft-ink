@@ -1851,17 +1851,11 @@ impl ApplicationHandler for App {
                 );
                 
                 if is_drawing_tool && !selected_props.has_selection {
-                    // Show panel for new shapes with current style settings
-                    selected_props.is_drawing_tool = true;
-                    selected_props.tool_is_rectangle = current_tool == ToolKind::Rectangle;
-                    selected_props.is_line = current_tool == ToolKind::Line;
-                    selected_props.is_arrow = current_tool == ToolKind::Arrow;
-                    selected_props.is_freehand = current_tool == ToolKind::Freehand;
-                    selected_props.calligraphy_mode = state.canvas.tool_manager.calligraphy_mode;
-                    selected_props.sloppiness = state.ui_state.to_shape_style().sloppiness as u8;
-                    selected_props.path_style = state.ui_state.path_style;
-                    // Use UI state corner radius for new rectangles
-                    selected_props.corner_radius = state.ui_state.corner_radius;
+                    selected_props = SelectedShapeProps::for_tool(
+                        current_tool,
+                        &state.ui_state,
+                        state.canvas.tool_manager.calligraphy_mode,
+                    );
                 }
                 
                 // Update peer info for presence panel
