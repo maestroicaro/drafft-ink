@@ -4,10 +4,10 @@ use kurbo::{Point, Rect};
 use drafftink_core::canvas::Canvas;
 use drafftink_core::input::InputState;
 use drafftink_core::selection::{
-    apply_manipulation, apply_rotation, get_manipulation_target_position, hit_test_handles, hit_test_boundary, ManipulationState, MultiMoveState, HANDLE_HIT_TOLERANCE,
+    apply_manipulation, apply_rotation, get_handles, get_manipulation_target_position, hit_test_handles, hit_test_boundary, ManipulationState, MultiMoveState, HANDLE_HIT_TOLERANCE,
 };
 use drafftink_core::shapes::{Freehand, Shape, ShapeId, ShapeStyle, Text};
-use drafftink_core::selection::HandleKind;
+use drafftink_core::selection::{Corner, HandleKind};
 use drafftink_core::snap::{snap_line_endpoint_isometric, snap_point_with_shapes, get_snap_targets_from_bounds, get_snap_targets_from_line, AngleSnapResult, SnapMode, SnapResult, SnapTarget, GRID_SIZE};
 use drafftink_core::tools::ToolKind;
 
@@ -99,6 +99,8 @@ pub struct EventHandler {
     selection_rect: Option<SelectionRect>,
     /// Shape ID being edited (for text editing).
     pub editing_text: Option<ShapeId>,
+    /// Original center of text when editing started (for preserving visual position on rotated text).
+    text_edit_original_center: Option<Point>,
     /// Last snap result (for rendering snap guides).
     pub last_snap: Option<SnapResult>,
     /// Last angle snap result (for rendering angle guides).
@@ -130,6 +132,7 @@ impl EventHandler {
             multi_move: None,
             selection_rect: None,
             editing_text: None,
+            text_edit_original_center: None,
             last_snap: None,
             last_angle_snap: None,
             line_start_point: None,
@@ -201,7 +204,15 @@ impl EventHandler {
 
     /// Enter text editing mode for a shape.
     /// This updates both the local state and the Canvas's WidgetManager.
+    /// Stores the top-left handle position to preserve it after editing.
     pub fn enter_text_edit(&mut self, canvas: &mut Canvas, id: ShapeId) {
+        // Store the actual top-left handle position
+        self.text_edit_original_center = canvas.document.get_shape(id)
+            .and_then(|shape| {
+                get_handles(shape).into_iter()
+                    .find(|h| matches!(h.kind, HandleKind::Corner(Corner::TopLeft)))
+                    .map(|h| h.position)
+            });
         self.editing_text = Some(id);
         canvas.enter_text_editing(id);
     }
@@ -209,8 +220,8 @@ impl EventHandler {
     /// Exit text editing mode.
     /// This updates both the local state and the Canvas's WidgetManager.
     /// If the text is empty, the shape is deleted.
+    /// Preserves top-left handle position for rotated text.
     pub fn exit_text_edit(&mut self, canvas: &mut Canvas) {
-        // Check if text is empty and should be deleted
         if let Some(id) = self.editing_text {
             let should_delete = canvas.document.get_shape(id)
                 .map(|shape| {
@@ -224,10 +235,25 @@ impl EventHandler {
             
             if should_delete {
                 canvas.remove_shape(id);
+            } else if let Some(target_tl) = self.text_edit_original_center {
+                // Get current top-left handle position and adjust
+                if let Some(shape) = canvas.document.get_shape(id) {
+                    if let Some(current_tl) = get_handles(shape).into_iter()
+                        .find(|h| matches!(h.kind, HandleKind::Corner(Corner::TopLeft)))
+                        .map(|h| h.position)
+                    {
+                        let offset = target_tl - current_tl;
+                        if let Some(Shape::Text(text)) = canvas.document.get_shape_mut(id) {
+                            text.position.x += offset.x;
+                            text.position.y += offset.y;
+                        }
+                    }
+                }
             }
         }
         
         self.editing_text = None;
+        self.text_edit_original_center = None;
         canvas.exit_text_editing();
     }
 

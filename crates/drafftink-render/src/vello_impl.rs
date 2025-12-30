@@ -889,7 +889,10 @@ impl VelloRenderer {
             _ => {
                 // Draw selection rectangle for non-line shapes
                 let bounds = shape.bounds();
+                let rotation = shape.rotation();
                 let stroke = Stroke::new(stroke_width).with_dashes(0.0, [dash_len, dash_len]);
+                
+                // Build path for the bounding box
                 let mut path = BezPath::new();
                 path.move_to(Point::new(bounds.x0, bounds.y0));
                 path.line_to(Point::new(bounds.x1, bounds.y0));
@@ -897,9 +900,20 @@ impl VelloRenderer {
                 path.line_to(Point::new(bounds.x0, bounds.y1));
                 path.close_path();
                 
+                // Apply rotation around center if shape is rotated
+                let box_transform = if rotation.abs() > 0.001 {
+                    let center = bounds.center();
+                    transform
+                        * Affine::translate((center.x, center.y))
+                        * Affine::rotate(rotation)
+                        * Affine::translate((-center.x, -center.y))
+                } else {
+                    transform
+                };
+                
                 self.scene.stroke(
                     &stroke,
-                    transform,
+                    box_transform,
                     self.selection_color,
                     None,
                     &path,
