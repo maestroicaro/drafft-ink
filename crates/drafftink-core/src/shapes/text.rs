@@ -85,6 +85,9 @@ pub struct Text {
     pub font_family: FontFamily,
     /// Font weight.
     pub font_weight: FontWeight,
+    /// Rotation angle in radians (around center).
+    #[serde(default)]
+    pub rotation: f64,
     /// Style properties.
     pub style: ShapeStyle,
     /// Cached layout size (width, height) computed by the renderer.
@@ -104,6 +107,7 @@ impl Clone for Text {
             font_size: self.font_size,
             font_family: self.font_family,
             font_weight: self.font_weight,
+            rotation: self.rotation,
             style: self.style.clone(),
             // Clone the cached size value, not the lock
             cached_size: RwLock::new(
@@ -126,6 +130,7 @@ impl Text {
             font_size: Self::DEFAULT_FONT_SIZE,
             font_family: FontFamily::default(),
             font_weight: FontWeight::default(),
+            rotation: 0.0,
             style: ShapeStyle::default(),
             cached_size: RwLock::new(None),
         }
@@ -147,8 +152,8 @@ impl Text {
     }
 
     /// Reconstruct a text with a specific ID (for CRDT/storage).
-    pub(crate) fn reconstruct(id: ShapeId, position: Point, content: String, font_size: f64, font_family: FontFamily, font_weight: FontWeight, style: ShapeStyle) -> Self {
-        Self { id, position, content, font_size, font_family, font_weight, style, cached_size: RwLock::new(None) }
+    pub(crate) fn reconstruct(id: ShapeId, position: Point, content: String, font_size: f64, font_family: FontFamily, font_weight: FontWeight, rotation: f64, style: ShapeStyle) -> Self {
+        Self { id, position, content, font_size, font_family, font_weight, rotation, style, cached_size: RwLock::new(None) }
     }
 
     /// Create a new text shape with font size.

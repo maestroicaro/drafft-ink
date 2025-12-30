@@ -80,6 +80,9 @@ pub struct Image {
     /// Image data as base64-encoded string (for CRDT compatibility).
     /// We use base64 string instead of Vec<u8> for easier JSON/CRDT serialization.
     pub data_base64: String,
+    /// Rotation angle in radians (around center).
+    #[serde(default)]
+    pub rotation: f64,
     /// Style properties (stroke used for optional border).
     pub style: ShapeStyle,
 }
@@ -111,13 +114,14 @@ impl Image {
             source_height,
             format,
             data_base64: STANDARD.encode(data),
+            rotation: 0.0,
             style: ShapeStyle::default(),
         }
     }
     
     /// Reconstruct an image with a specific ID (for CRDT/storage).
-    pub(crate) fn reconstruct(id: ShapeId, position: Point, width: f64, height: f64, source_width: u32, source_height: u32, format: ImageFormat, data_base64: String, style: ShapeStyle) -> Self {
-        Self { id, position, width, height, source_width, source_height, format, data_base64, style }
+    pub(crate) fn reconstruct(id: ShapeId, position: Point, width: f64, height: f64, source_width: u32, source_height: u32, format: ImageFormat, data_base64: String, rotation: f64, style: ShapeStyle) -> Self {
+        Self { id, position, width, height, source_width, source_height, format, data_base64, rotation, style }
     }
 
     /// Create an image shape with specific display dimensions.

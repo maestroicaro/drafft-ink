@@ -400,4 +400,31 @@ impl Shape {
             _ => None,
         }
     }
+    
+    /// Get the rotation angle in radians (0 for shapes that don't support rotation).
+    pub fn rotation(&self) -> f64 {
+        match self {
+            Shape::Rectangle(r) => r.rotation,
+            Shape::Ellipse(e) => e.rotation,
+            Shape::Text(t) => t.rotation,
+            Shape::Image(i) => i.rotation,
+            _ => 0.0,
+        }
+    }
+    
+    /// Set the rotation angle in radians.
+    pub fn set_rotation(&mut self, rotation: f64) {
+        match self {
+            Shape::Rectangle(r) => r.rotation = rotation,
+            Shape::Ellipse(e) => e.rotation = rotation,
+            Shape::Text(t) => t.rotation = rotation,
+            Shape::Image(i) => i.rotation = rotation,
+            _ => {}
+        }
+    }
+    
+    /// Check if this shape supports rotation.
+    pub fn supports_rotation(&self) -> bool {
+        matches!(self, Shape::Rectangle(_) | Shape::Ellipse(_) | Shape::Text(_) | Shape::Image(_))
+    }
 }

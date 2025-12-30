@@ -72,6 +72,9 @@ const KEY_SOURCE_HEIGHT: &str = "source_height";
 const KEY_FORMAT: &str = "format";
 const KEY_DATA_BASE64: &str = "data_base64";
 
+// Rotation key (shared by Rectangle, Ellipse, Text, Image)
+const KEY_ROTATION: &str = "rotation";
+
 // Helper functions to extract values from LoroMapValue
 fn get_double(map: &LoroMapValue, key: &str) -> Option<f64> {
     match map.get(key)? {
@@ -118,6 +121,7 @@ pub fn shape_to_loro(shape: &Shape, map: &LoroMap) -> LoroResult<()> {
             map.insert(KEY_WIDTH, rect.width)?;
             map.insert(KEY_HEIGHT, rect.height)?;
             map.insert(KEY_CORNER_RADIUS, rect.corner_radius)?;
+            map.insert(KEY_ROTATION, rect.rotation)?;
             style_to_loro(&rect.style, map)?;
         }
         Shape::Ellipse(ellipse) => {
@@ -127,6 +131,7 @@ pub fn shape_to_loro(shape: &Shape, map: &LoroMap) -> LoroResult<()> {
             map.insert(KEY_Y, ellipse.center.y)?;
             map.insert(KEY_WIDTH, ellipse.radius_x)?;
             map.insert(KEY_HEIGHT, ellipse.radius_y)?;
+            map.insert(KEY_ROTATION, ellipse.rotation)?;
             style_to_loro(&ellipse.style, map)?;
         }
         Shape::Line(line) => {
@@ -182,6 +187,7 @@ pub fn shape_to_loro(shape: &Shape, map: &LoroMap) -> LoroResult<()> {
             map.insert(KEY_FONT_SIZE, text.font_size)?;
             map.insert(KEY_FONT_FAMILY, font_family_to_i64(text.font_family))?;
             map.insert(KEY_FONT_WEIGHT, font_weight_to_i64(text.font_weight))?;
+            map.insert(KEY_ROTATION, text.rotation)?;
             style_to_loro(&text.style, map)?;
         }
         Shape::Group(group) => {
@@ -204,6 +210,7 @@ pub fn shape_to_loro(shape: &Shape, map: &LoroMap) -> LoroResult<()> {
             map.insert(KEY_SOURCE_HEIGHT, image.source_height as i64)?;
             map.insert(KEY_FORMAT, image_format_to_i64(image.format))?;
             map.insert(KEY_DATA_BASE64, image.data_base64.clone())?;
+            map.insert(KEY_ROTATION, image.rotation)?;
             style_to_loro(&image.style, map)?;
         }
     }
@@ -258,6 +265,7 @@ fn rectangle_from_loro(map: &LoroMapValue) -> Option<Shape> {
         get_double(map, KEY_WIDTH)?,
         get_double(map, KEY_HEIGHT)?,
         get_double(map, KEY_CORNER_RADIUS).unwrap_or(0.0),
+        get_double(map, KEY_ROTATION).unwrap_or(0.0),
         style_from_loro(map)?,
     )))
 }
@@ -268,6 +276,7 @@ fn ellipse_from_loro(map: &LoroMapValue) -> Option<Shape> {
         Point::new(get_double(map, KEY_X)?, get_double(map, KEY_Y)?),
         get_double(map, KEY_WIDTH)?,
         get_double(map, KEY_HEIGHT)?,
+        get_double(map, KEY_ROTATION).unwrap_or(0.0),
         style_from_loro(map)?,
     )))
 }
@@ -311,6 +320,7 @@ fn text_from_loro(map: &LoroMapValue) -> Option<Shape> {
         get_double(map, KEY_FONT_SIZE).unwrap_or(20.0),
         get_i64(map, KEY_FONT_FAMILY).map(i64_to_font_family).unwrap_or_default(),
         get_i64(map, KEY_FONT_WEIGHT).map(i64_to_font_weight).unwrap_or_default(),
+        get_double(map, KEY_ROTATION).unwrap_or(0.0),
         style_from_loro(map)?,
     )))
 }
@@ -342,6 +352,7 @@ fn image_from_loro(map: &LoroMapValue) -> Option<Shape> {
         get_i64(map, KEY_SOURCE_HEIGHT)? as u32,
         get_i64(map, KEY_FORMAT).map(i64_to_image_format).unwrap_or(ImageFormat::Png),
         get_string(map, KEY_DATA_BASE64)?,
+        get_double(map, KEY_ROTATION).unwrap_or(0.0),
         style_from_loro(map)?,
     )))
 }

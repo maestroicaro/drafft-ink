@@ -9,7 +9,7 @@ pub mod text_editor;
 #[cfg(feature = "vello-renderer")]
 mod vello_impl;
 
-pub use renderer::{AngleSnapInfo, GridStyle, RenderContext, Renderer, RendererError};
+pub use renderer::{AngleSnapInfo, GridStyle, RenderContext, Renderer, RendererError, RotationInfo};
 pub use text_editor::{TextEditResult, TextEditState, TextKey, TextModifiers};
 
 #[cfg(feature = "vello-renderer")]

@@ -17,6 +17,9 @@ pub struct Rectangle {
     pub height: f64,
     /// Corner radius (0 = sharp corners).
     pub corner_radius: f64,
+    /// Rotation angle in radians (around center).
+    #[serde(default)]
+    pub rotation: f64,
     /// Style properties.
     pub style: ShapeStyle,
 }
@@ -38,13 +41,14 @@ impl Rectangle {
             width,
             height,
             corner_radius: 0.0,
+            rotation: 0.0,
             style: ShapeStyle::default(),
         }
     }
 
     /// Reconstruct a rectangle with a specific ID (for CRDT/storage).
-    pub(crate) fn reconstruct(id: ShapeId, position: Point, width: f64, height: f64, corner_radius: f64, style: ShapeStyle) -> Self {
-        Self { id, position, width, height, corner_radius, style }
+    pub(crate) fn reconstruct(id: ShapeId, position: Point, width: f64, height: f64, corner_radius: f64, rotation: f64, style: ShapeStyle) -> Self {
+        Self { id, position, width, height, corner_radius, rotation, style }
     }
 
     /// Create a rectangle from two corner points.

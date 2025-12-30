@@ -71,6 +71,17 @@ pub struct AngleSnapInfo {
     pub is_snapped: bool,
 }
 
+/// Rotation visualization info (for rotation helper lines).
+#[derive(Debug, Clone, Copy)]
+pub struct RotationInfo {
+    /// Center of the shape being rotated.
+    pub center: kurbo::Point,
+    /// Current rotation angle in radians.
+    pub angle: f64,
+    /// Whether snapping to 15° increments.
+    pub snapped: bool,
+}
+
 /// Context for a single render frame.
 pub struct RenderContext<'a> {
     /// The canvas to render.
@@ -95,6 +106,8 @@ pub struct RenderContext<'a> {
     pub angle_snap_info: Option<AngleSnapInfo>,
     /// Nearby snap targets to highlight (when shape snapping is enabled).
     pub nearby_snap_targets: Vec<SnapTarget>,
+    /// Rotation visualization info (for rotation helper lines).
+    pub rotation_info: Option<RotationInfo>,
 }
 
 impl<'a> RenderContext<'a> {
@@ -112,6 +125,7 @@ impl<'a> RenderContext<'a> {
             snap_point: None,
             angle_snap_info: None,
             nearby_snap_targets: Vec::new(),
+            rotation_info: None,
         }
     }
 
@@ -160,6 +174,12 @@ impl<'a> RenderContext<'a> {
     /// Set nearby snap targets to highlight.
     pub fn with_snap_targets(mut self, targets: Vec<SnapTarget>) -> Self {
         self.nearby_snap_targets = targets;
+        self
+    }
+    
+    /// Set rotation info for rendering rotation helper lines.
+    pub fn with_rotation_info(mut self, info: Option<RotationInfo>) -> Self {
+        self.rotation_info = info;
         self
     }
 }

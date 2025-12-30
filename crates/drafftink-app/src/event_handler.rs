@@ -4,7 +4,7 @@ use kurbo::{Point, Rect};
 use drafftink_core::canvas::Canvas;
 use drafftink_core::input::InputState;
 use drafftink_core::selection::{
-    apply_manipulation, get_manipulation_target_position, hit_test_handles, hit_test_boundary, ManipulationState, MultiMoveState, HANDLE_HIT_TOLERANCE,
+    apply_manipulation, apply_rotation, get_manipulation_target_position, hit_test_handles, hit_test_boundary, ManipulationState, MultiMoveState, HANDLE_HIT_TOLERANCE,
 };
 use drafftink_core::shapes::{Freehand, Shape, ShapeId, ShapeStyle, Text};
 use drafftink_core::selection::HandleKind;
@@ -107,6 +107,19 @@ pub struct EventHandler {
     pub line_start_point: Option<Point>,
     /// Current snap targets from nearby shapes (for rendering snap indicators).
     pub current_snap_targets: Vec<SnapTarget>,
+    /// Current rotation angle during rotation drag (for helper line rendering).
+    pub rotation_state: Option<RotationState>,
+}
+
+/// State for rotation drag operation.
+#[derive(Debug, Clone)]
+pub struct RotationState {
+    /// Center of the shape being rotated.
+    pub center: Point,
+    /// Current rotation angle in radians.
+    pub angle: f64,
+    /// Whether snapping to 15° increments.
+    pub snapped: bool,
 }
 
 impl EventHandler {
@@ -121,6 +134,7 @@ impl EventHandler {
             last_angle_snap: None,
             line_start_point: None,
             current_snap_targets: Vec::new(),
+            rotation_state: None,
         }
     }
 
@@ -152,6 +166,7 @@ impl EventHandler {
         self.selection_rect = None;
         self.last_snap = None;
         self.last_angle_snap = None;
+        self.rotation_state = None;
         canvas.tool_manager.cancel();
     }
 
@@ -331,6 +346,21 @@ impl EventHandler {
                             return;
                         }
                     }
+                    
+                    // Check for double-click on rotation handle to reset rotation
+                    let handle_tolerance = HANDLE_HIT_TOLERANCE / canvas.camera.zoom;
+                    for &shape_id in &canvas.selection {
+                        if let Some(shape) = canvas.document.get_shape(shape_id) {
+                            if let Some(HandleKind::Rotate) = hit_test_handles(shape, world_point, handle_tolerance) {
+                                // Double-click on rotation handle - reset to 0°
+                                canvas.document.push_undo();
+                                if let Some(shape) = canvas.document.get_shape_mut(shape_id) {
+                                    shape.set_rotation(0.0);
+                                }
+                                return;
+                            }
+                        }
+                    }
                 }
                 
                 // First, check if we clicked on a handle of a selected shape
@@ -456,8 +486,34 @@ impl EventHandler {
     /// `snap_mode` controls whether the end point should snap to grid.
     /// `angle_snap_enabled` enables 15° angle snapping for lines/arrows.
     pub fn handle_release(&mut self, canvas: &mut Canvas, world_point: Point, input: &InputState, current_style: &ShapeStyle, snap_mode: SnapMode, angle_snap_enabled: bool) {
+        // Clear rotation state
+        self.rotation_state = None;
+        
         // If we were manipulating a single shape (handle resize), finalize it
         if let Some(manip) = self.manipulation.take() {
+            // Check if this was a rotation operation
+            if matches!(manip.handle, Some(HandleKind::Rotate)) {
+                // Rotation was already applied during drag, just need to push undo
+                // Get the current rotation from the shape
+                if let Some(shape) = canvas.document.get_shape(manip.shape_id) {
+                    let current_rotation = shape.rotation();
+                    let original_rotation = manip.original_shape.rotation();
+                    
+                    // Only push undo if rotation actually changed
+                    if (current_rotation - original_rotation).abs() > 0.001 {
+                        // Restore original, push undo, then re-apply current rotation
+                        if let Some(shape) = canvas.document.get_shape_mut(manip.shape_id) {
+                            *shape = manip.original_shape.clone();
+                        }
+                        canvas.document.push_undo();
+                        if let Some(shape) = canvas.document.get_shape_mut(manip.shape_id) {
+                            shape.set_rotation(current_rotation);
+                        }
+                    }
+                }
+                return;
+            }
+            
             // Use manip.current_point which was already snapped during drag,
             // NOT the raw world_point which would cause a jump on release
             let delta = manip.delta();
@@ -676,6 +732,29 @@ impl EventHandler {
         
         // If we're manipulating a shape, update it
         if let Some(manip) = &mut self.manipulation {
+            // Check if this is a rotation handle
+            if matches!(manip.handle, Some(HandleKind::Rotate)) {
+                // Handle rotation - Shift key snaps to 15° increments
+                let snap_to_15deg = input.shift();
+                let center = manip.original_shape.bounds().center();
+                
+                // Apply rotation to the shape
+                if let Some(shape) = canvas.document.get_shape_mut(manip.shape_id) {
+                    let angle = apply_rotation(shape, world_point, snap_to_15deg);
+                    
+                    // Update rotation state for helper line rendering
+                    self.rotation_state = Some(RotationState {
+                        center,
+                        angle,
+                        snapped: snap_to_15deg,
+                    });
+                }
+                
+                // Update current_point for delta calculation on release
+                manip.current_point = world_point;
+                return;
+            }
+            
             // Check if we're manipulating a line or arrow endpoint
             let is_line_or_arrow = matches!(manip.original_shape, Shape::Line(_) | Shape::Arrow(_));
             

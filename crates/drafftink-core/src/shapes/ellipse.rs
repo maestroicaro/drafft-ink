@@ -15,6 +15,9 @@ pub struct Ellipse {
     pub radius_x: f64,
     /// Vertical radius.
     pub radius_y: f64,
+    /// Rotation angle in radians (around center).
+    #[serde(default)]
+    pub rotation: f64,
     /// Style properties.
     pub style: ShapeStyle,
 }
@@ -27,13 +30,14 @@ impl Ellipse {
             center,
             radius_x,
             radius_y,
+            rotation: 0.0,
             style: ShapeStyle::default(),
         }
     }
 
     /// Reconstruct an ellipse with a specific ID (for CRDT/storage).
-    pub(crate) fn reconstruct(id: ShapeId, center: Point, radius_x: f64, radius_y: f64, style: ShapeStyle) -> Self {
-        Self { id, center, radius_x, radius_y, style }
+    pub(crate) fn reconstruct(id: ShapeId, center: Point, radius_x: f64, radius_y: f64, rotation: f64, style: ShapeStyle) -> Self {
+        Self { id, center, radius_x, radius_y, rotation, style }
     }
 
     /// Create a circle.

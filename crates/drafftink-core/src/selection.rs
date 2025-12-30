@@ -22,6 +22,8 @@ pub enum HandleKind {
     Corner(Corner),
     /// Edge midpoint handle for rectangles/ellipses (for resizing).
     Edge(Edge),
+    /// Rotation handle (positioned outside the shape).
+    Rotate,
 }
 
 /// Corner positions.
@@ -107,27 +109,18 @@ pub fn get_handles(shape: &Shape) -> Vec<Handle> {
             }
             handles
         }
-        Shape::Rectangle(_) | Shape::Ellipse(_) => {
+        Shape::Rectangle(_) | Shape::Ellipse(_) | Shape::Text(_) | Shape::Image(_) => {
             let bounds = shape.bounds();
-            corner_handles(bounds)
+            let rotation = shape.rotation();
+            corner_and_rotate_handles(bounds, rotation)
         }
         Shape::Freehand(_) => {
-            // Freehand uses bounding box corners
-            let bounds = shape.bounds();
-            corner_handles(bounds)
-        }
-        Shape::Text(_) => {
-            // Text uses bounding box corners
+            // Freehand uses bounding box corners (no rotation)
             let bounds = shape.bounds();
             corner_handles(bounds)
         }
         Shape::Group(_) => {
             // Groups use bounding box corners (resize not supported, only move)
-            let bounds = shape.bounds();
-            corner_handles(bounds)
-        }
-        Shape::Image(_) => {
-            // Images use bounding box corners for resizing
             let bounds = shape.bounds();
             corner_handles(bounds)
         }
@@ -153,6 +146,36 @@ fn corner_handles(bounds: Rect) -> Vec<Handle> {
             Point::new(bounds.x1, bounds.y1),
             HandleKind::Corner(Corner::BottomRight),
         ),
+    ]
+}
+
+/// Distance from shape edge to rotation handle (in world units).
+pub const ROTATE_HANDLE_OFFSET: f64 = 25.0;
+
+/// Generate corner handles plus a rotation handle for a bounding rectangle.
+/// The rotation handle is placed above the top-center, rotated by the shape's rotation.
+fn corner_and_rotate_handles(bounds: Rect, rotation: f64) -> Vec<Handle> {
+    let center = bounds.center();
+    let half_w = bounds.width() / 2.0;
+    let half_h = bounds.height() / 2.0;
+    
+    // Helper to rotate a point around center
+    let rotate_point = |dx: f64, dy: f64| -> Point {
+        let cos_r = rotation.cos();
+        let sin_r = rotation.sin();
+        Point::new(
+            center.x + dx * cos_r - dy * sin_r,
+            center.y + dx * sin_r + dy * cos_r,
+        )
+    };
+    
+    vec![
+        Handle::new(rotate_point(-half_w, -half_h), HandleKind::Corner(Corner::TopLeft)),
+        Handle::new(rotate_point(half_w, -half_h), HandleKind::Corner(Corner::TopRight)),
+        Handle::new(rotate_point(-half_w, half_h), HandleKind::Corner(Corner::BottomLeft)),
+        Handle::new(rotate_point(half_w, half_h), HandleKind::Corner(Corner::BottomRight)),
+        // Rotation handle: above top-center
+        Handle::new(rotate_point(0.0, -half_h - ROTATE_HANDLE_OFFSET), HandleKind::Rotate),
     ]
 }
 
@@ -327,6 +350,19 @@ pub fn get_manipulation_target_position(shape: &Shape, handle: Option<HandleKind
                 Edge::Left => Point::new(bounds.x0, bounds.center().y),
             }
         }
+        Some(HandleKind::Rotate) => {
+            // Rotation handle position
+            let bounds = shape.bounds();
+            let center = bounds.center();
+            let rotation = shape.rotation();
+            let half_h = bounds.height() / 2.0;
+            let cos_r = rotation.cos();
+            let sin_r = rotation.sin();
+            Point::new(
+                center.x - (half_h + ROTATE_HANDLE_OFFSET) * sin_r,
+                center.y - (half_h + ROTATE_HANDLE_OFFSET) * cos_r,
+            )
+        }
     }
 }
 
@@ -433,9 +469,41 @@ pub fn apply_manipulation(shape: &Shape, handle: Option<HandleKind>, delta: kurb
         Some(HandleKind::Edge(_)) => {
             // Edge resize not implemented yet
         }
+        Some(HandleKind::Rotate) => {
+            // Rotation is handled separately via apply_rotation
+        }
     }
     
     shape
+}
+
+/// Apply rotation to a shape.
+/// `cursor_point`: current cursor position in world coordinates.
+/// `snap_to_15deg`: if true, snap rotation to 15° increments.
+/// Returns the new rotation angle in radians.
+pub fn apply_rotation(shape: &mut Shape, cursor_point: Point, snap_to_15deg: bool) -> f64 {
+    let bounds = shape.bounds();
+    let center = bounds.center();
+    
+    // Calculate angle from center to cursor
+    let dx = cursor_point.x - center.x;
+    let dy = cursor_point.y - center.y;
+    let mut angle = dy.atan2(dx) + std::f64::consts::FRAC_PI_2; // Offset so 0° is up
+    
+    // Snap to 15° increments if requested
+    if snap_to_15deg {
+        let snap_angle = std::f64::consts::PI / 12.0; // 15°
+        angle = (angle / snap_angle).round() * snap_angle;
+    }
+    
+    shape.set_rotation(angle);
+    angle
+}
+
+/// Reset rotation to a specific angle (0° or 90°).
+pub fn reset_rotation(shape: &mut Shape, angle_degrees: f64) {
+    let angle_radians = angle_degrees.to_radians();
+    shape.set_rotation(angle_radians);
 }
 
 /// Apply corner resize to a rectangle.
@@ -581,8 +649,10 @@ mod tests {
         let rect = Rectangle::new(Point::new(0.0, 0.0), 100.0, 50.0);
         let handles = get_handles(&Shape::Rectangle(rect));
         
-        assert_eq!(handles.len(), 4);
+        // 4 corner handles + 1 rotation handle
+        assert_eq!(handles.len(), 5);
         assert!(matches!(handles[0].kind, HandleKind::Corner(Corner::TopLeft)));
+        assert!(matches!(handles[4].kind, HandleKind::Rotate));
     }
 
     #[test]
@@ -670,6 +740,7 @@ mod tests {
             source_height: 200,
             format: ImageFormat::Png,
             data_base64: String::new(),
+            rotation: 0.0,
             style: ShapeStyle::default(),
         };
         let shape = Shape::Image(image);

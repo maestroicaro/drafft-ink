@@ -2782,6 +2782,15 @@ impl ApplicationHandler for App {
                 // Update and get snap targets for nearby shape indicators
                 state.event_handler.update_snap_targets(&state.canvas, state.ui_state.snap_mode);
                 let snap_targets = state.event_handler.current_snap_targets.clone();
+                
+                // Get rotation info for helper lines
+                let rotation_info = state.event_handler.rotation_state.as_ref().map(|rs| {
+                    drafftink_render::RotationInfo {
+                        center: rs.center,
+                        angle: rs.angle,
+                        snapped: rs.snapped,
+                    }
+                });
 
                 let render_ctx = RenderContext::new(&state.canvas, viewport_size)
                     .with_scale_factor(state.window.scale_factor())
@@ -2791,7 +2800,8 @@ impl ApplicationHandler for App {
                     .with_editing_shape(state.event_handler.editing_text)
                     .with_snap_point(snap_point)
                     .with_angle_snap(angle_snap_info)
-                    .with_snap_targets(snap_targets);
+                    .with_snap_targets(snap_targets)
+                    .with_rotation_info(rotation_info);
 
                 state.shape_renderer.build_scene(&render_ctx);
                 
@@ -3000,6 +3010,7 @@ impl ApplicationHandler for App {
                         Some(Some(HandleKind::Corner(Corner::TopRight | Corner::BottomLeft))) => CursorIcon::NeswResize,
                         Some(Some(HandleKind::Edge(_))) => CursorIcon::EwResize,
                         Some(Some(HandleKind::Endpoint(_) | HandleKind::IntermediatePoint(_) | HandleKind::SegmentMidpoint(_))) => CursorIcon::Crosshair,
+                        Some(Some(HandleKind::Rotate)) => CursorIcon::Grab,
                         Some(None) => CursorIcon::Move,
                         None => CursorIcon::Default,
                     };

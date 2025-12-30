@@ -988,6 +988,56 @@ impl VelloRenderer {
                     &path,
                 );
             }
+            HandleKind::Rotate => {
+                // Rotation handle: circle with rotation icon
+                let radius = size / 2.0;
+                let ellipse = kurbo::Ellipse::new(pos, (radius, radius), 0.0);
+                let path = ellipse.to_path(0.1);
+                
+                // White fill
+                self.scene.fill(
+                    Fill::NonZero,
+                    transform,
+                    Color::WHITE,
+                    None,
+                    &path,
+                );
+                
+                // Blue border
+                self.scene.stroke(
+                    &Stroke::new(stroke_width_thick),
+                    transform,
+                    self.selection_color,
+                    None,
+                    &path,
+                );
+                
+                // Draw rotation arc inside the handle
+                let arc_radius = radius * 0.5;
+                let mut arc_path = BezPath::new();
+                // Draw a 270° arc
+                let start_angle = -std::f64::consts::FRAC_PI_4;
+                let end_angle = start_angle + std::f64::consts::PI * 1.5;
+                let steps = 12;
+                for i in 0..=steps {
+                    let t = i as f64 / steps as f64;
+                    let angle = start_angle + t * (end_angle - start_angle);
+                    let x = pos.x + arc_radius * angle.cos();
+                    let y = pos.y + arc_radius * angle.sin();
+                    if i == 0 {
+                        arc_path.move_to(Point::new(x, y));
+                    } else {
+                        arc_path.line_to(Point::new(x, y));
+                    }
+                }
+                self.scene.stroke(
+                    &Stroke::new(stroke_width_thin),
+                    transform,
+                    self.selection_color,
+                    None,
+                    &arc_path,
+                );
+            }
         }
     }
 }
@@ -1061,6 +1111,11 @@ impl Renderer for VelloRenderer {
         // Draw angle snap guides (polar rays and arc)
         if let Some(ref angle_info) = ctx.angle_snap_info {
             self.render_angle_snap_guides(angle_info, camera_transform, ctx.viewport_size);
+        }
+        
+        // Draw rotation helper lines
+        if let Some(ref rotation_info) = ctx.rotation_info {
+            self.render_rotation_guides(rotation_info, camera_transform);
         }
     }
 }
@@ -1237,6 +1292,83 @@ impl VelloRenderer {
             
             // Note: Text rendering would require Parley/font setup which is complex
             // For now, we skip the text label - the arc itself shows the angle visually
+        }
+    }
+
+    /// Render rotation helper lines (center crosshair and angle indicator).
+    fn render_rotation_guides(
+        &mut self,
+        info: &crate::renderer::RotationInfo,
+        transform: Affine,
+    ) {
+        use std::f64::consts::PI;
+        
+        // Colors
+        let guide_color = Color::from_rgba8(236, 72, 153, 200); // Magenta
+        let snap_color = Color::from_rgba8(34, 197, 94, 220); // Green when snapped
+        
+        let color = if info.snapped { snap_color } else { guide_color };
+        
+        // Stroke widths scaled inversely with zoom
+        let stroke_width = 1.5 / self.zoom;
+        
+        let center = info.center;
+        
+        // Draw center crosshair
+        let cross_size = 10.0 / self.zoom;
+        let mut cross_path = BezPath::new();
+        cross_path.move_to(Point::new(center.x - cross_size, center.y));
+        cross_path.line_to(Point::new(center.x + cross_size, center.y));
+        cross_path.move_to(Point::new(center.x, center.y - cross_size));
+        cross_path.line_to(Point::new(center.x, center.y + cross_size));
+        self.scene.stroke(&Stroke::new(stroke_width), transform, color, None, &cross_path);
+        
+        // Draw rotation indicator line from center outward at current angle
+        let indicator_length = 50.0 / self.zoom;
+        // Angle is measured from top (negative Y), so we need to adjust
+        let angle = info.angle - PI / 2.0;
+        let end_x = center.x + indicator_length * angle.cos();
+        let end_y = center.y + indicator_length * angle.sin();
+        
+        let mut indicator_path = BezPath::new();
+        indicator_path.move_to(center);
+        indicator_path.line_to(Point::new(end_x, end_y));
+        self.scene.stroke(&Stroke::new(stroke_width * 1.5), transform, color, None, &indicator_path);
+        
+        // Draw reference line at 0° (pointing up)
+        let ref_end_y = center.y - indicator_length;
+        let mut ref_path = BezPath::new();
+        ref_path.move_to(center);
+        ref_path.line_to(Point::new(center.x, ref_end_y));
+        
+        // Dashed stroke for reference line
+        let dash_pattern = [4.0 / self.zoom, 4.0 / self.zoom];
+        let dashed_stroke = Stroke::new(stroke_width).with_dashes(0.0, &dash_pattern);
+        self.scene.stroke(&dashed_stroke, transform, Color::from_rgba8(150, 150, 150, 150), None, &ref_path);
+        
+        // Draw angle arc from 0° to current angle
+        if info.angle.abs() > 0.01 {
+            let arc_radius = 25.0 / self.zoom;
+            let segments = ((info.angle.abs() * 180.0 / PI) / 5.0).ceil() as usize;
+            let segments = segments.clamp(2, 72);
+            
+            let mut arc_path = BezPath::new();
+            let start_angle = -PI / 2.0; // 0° is up
+            let end_angle = info.angle - PI / 2.0;
+            
+            let first_x = center.x + arc_radius * start_angle.cos();
+            let first_y = center.y + arc_radius * start_angle.sin();
+            arc_path.move_to(Point::new(first_x, first_y));
+            
+            for i in 1..=segments {
+                let t = i as f64 / segments as f64;
+                let a = start_angle + t * (end_angle - start_angle);
+                let x = center.x + arc_radius * a.cos();
+                let y = center.y + arc_radius * a.sin();
+                arc_path.line_to(Point::new(x, y));
+            }
+            
+            self.scene.stroke(&Stroke::new(stroke_width), transform, color, None, &arc_path);
         }
     }
 
@@ -1444,10 +1576,22 @@ impl VelloRenderer {
 
 impl ShapeRenderer for VelloRenderer {
     fn render_shape(&mut self, shape: &Shape, transform: Affine, selected: bool) {
+        // Get rotation and apply rotation transform around shape center
+        let rotation = shape.rotation();
+        let shape_transform = if rotation.abs() > 0.001 {
+            let center = shape.bounds().center();
+            let center_vec = kurbo::Vec2::new(center.x, center.y);
+            transform * Affine::translate(center_vec)
+                * Affine::rotate(rotation)
+                * Affine::translate(-center_vec)
+        } else {
+            transform
+        };
+        
         // Special handling for different shape types
         match shape {
             Shape::Text(text) => {
-                self.render_text(text, transform);
+                self.render_text(text, shape_transform);
             }
             Shape::Group(group) => {
                 // Render each child in the group
@@ -1457,20 +1601,21 @@ impl ShapeRenderer for VelloRenderer {
                 }
             }
             Shape::Image(image) => {
-                self.render_image(image, transform);
+                self.render_image(image, shape_transform);
             }
             Shape::Line(_) | Shape::Arrow(_) => {
                 // Lines and arrows have no fill
                 let path = shape.to_path();
-                self.render_stroke_only(&path, shape.style(), transform);
+                self.render_stroke_only(&path, shape.style(), shape_transform);
             }
             _ => {
                 let path = shape.to_path();
-                self.render_path(&path, shape.style(), transform);
+                self.render_path(&path, shape.style(), shape_transform);
             }
         }
 
         // Draw selection highlight with shape-specific handles
+        // Use original transform for handles (they're already rotated in get_handles)
         if selected {
             self.render_shape_handles(shape, transform);
         }
