@@ -1053,29 +1053,13 @@ impl Renderer for VelloRenderer {
 
         // Draw grid based on style
         use crate::renderer::GridStyle;
+        let viewport = Rect::new(0.0, 0.0, ctx.viewport_size.width, ctx.viewport_size.height);
         match ctx.grid_style {
             GridStyle::None => {}
-            GridStyle::Lines => {
-                self.render_grid_lines(
-                    Rect::new(0.0, 0.0, ctx.viewport_size.width, ctx.viewport_size.height),
-                    camera_transform,
-                    20.0,
-                );
-            }
-            GridStyle::CrossPlus => {
-                self.render_grid_crosses(
-                    Rect::new(0.0, 0.0, ctx.viewport_size.width, ctx.viewport_size.height),
-                    camera_transform,
-                    20.0,
-                );
-            }
-            GridStyle::Dots => {
-                self.render_grid_dots(
-                    Rect::new(0.0, 0.0, ctx.viewport_size.width, ctx.viewport_size.height),
-                    camera_transform,
-                    20.0,
-                );
-            }
+            GridStyle::Lines => self.render_grid_lines(viewport, camera_transform, 20.0),
+            GridStyle::HorizontalLines => self.render_horizontal_lines(viewport, camera_transform, 20.0),
+            GridStyle::CrossPlus => self.render_grid_crosses(viewport, camera_transform, 20.0),
+            GridStyle::Dots => self.render_grid_dots(viewport, camera_transform, 20.0),
         }
 
         // Draw all shapes in z-order (skip shape being edited - it's rendered separately)
@@ -1439,6 +1423,23 @@ impl VelloRenderer {
         }
 
         // Horizontal lines
+        let mut y = start_y;
+        while y <= end_y {
+            let mut path = BezPath::new();
+            path.move_to(Point::new(start_x, y));
+            path.line_to(Point::new(end_x, y));
+            self.scene.stroke(&stroke, transform, grid_color, None, &path);
+            y += grid_size;
+        }
+    }
+
+    fn render_horizontal_lines(&mut self, viewport: Rect, transform: Affine, grid_size: f64) {
+        let grid_color = Color::from_rgba8(200, 200, 200, 100);
+        let stroke = Stroke::new(0.5);
+
+        let (start_x, start_y, _, end_y) = self.grid_bounds(viewport, transform, grid_size);
+        let end_x = start_x + viewport.width() / transform.as_coeffs()[0];
+
         let mut y = start_y;
         while y <= end_y {
             let mut path = BezPath::new();

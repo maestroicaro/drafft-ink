@@ -623,10 +623,11 @@ fn render_bottom_toolbar(ctx: &Context, ui_state: &mut UiState) -> Option<UiActi
 
                         // Grid toggle button - draw grid pattern icon
                         let grid_tooltip = match ui_state.grid_style {
-                            GridStyle::None => "No grid (click to show lines)",
-                            GridStyle::Lines => "Grid lines (click for crosses)",
-                            GridStyle::CrossPlus => "Grid crosses (click for dots)",
-                            GridStyle::Dots => "Grid dots (click to hide)",
+                            GridStyle::None => "No grid (click to show grid)",
+                            GridStyle::Lines => "Grid (click for lines)",
+                            GridStyle::HorizontalLines => "Lines (click for crosses)",
+                            GridStyle::CrossPlus => "Crosses (click for dots)",
+                            GridStyle::Dots => "Dots (click to hide)",
                         };
                         
                         if grid_style_button(ui, ui_state.grid_style, grid_tooltip) {
@@ -1003,6 +1004,16 @@ fn grid_style_button(ui: &mut egui::Ui, style: GridStyle, tooltip: &str) -> bool
                         Stroke::new(1.0, icon_color),
                     );
                     // Horizontal line
+                    ui.painter().line_segment(
+                        [Pos2::new(center.x - grid_size * 1.5, center.y + offset), Pos2::new(center.x + grid_size * 1.5, center.y + offset)],
+                        Stroke::new(1.0, icon_color),
+                    );
+                }
+            }
+            GridStyle::HorizontalLines => {
+                // Draw 3 horizontal lines
+                for i in 0..3 {
+                    let offset = (i as f32 - 1.0) * grid_size;
                     ui.painter().line_segment(
                         [Pos2::new(center.x - grid_size * 1.5, center.y + offset), Pos2::new(center.x + grid_size * 1.5, center.y + offset)],
                         Stroke::new(1.0, icon_color),

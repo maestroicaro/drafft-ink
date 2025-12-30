@@ -30,6 +30,8 @@ pub enum GridStyle {
     /// Full grid lines.
     #[default]
     Lines,
+    /// Horizontal lines only.
+    HorizontalLines,
     /// Only corner crosses (+).
     CrossPlus,
     /// Only corner dots (.).
@@ -41,7 +43,8 @@ impl GridStyle {
     pub fn next(self) -> Self {
         match self {
             GridStyle::None => GridStyle::Lines,
-            GridStyle::Lines => GridStyle::CrossPlus,
+            GridStyle::Lines => GridStyle::HorizontalLines,
+            GridStyle::HorizontalLines => GridStyle::CrossPlus,
             GridStyle::CrossPlus => GridStyle::Dots,
             GridStyle::Dots => GridStyle::None,
         }
@@ -51,7 +54,8 @@ impl GridStyle {
     pub fn name(self) -> &'static str {
         match self {
             GridStyle::None => "None",
-            GridStyle::Lines => "Lines",
+            GridStyle::Lines => "Grid",
+            GridStyle::HorizontalLines => "Lines",
             GridStyle::CrossPlus => "Crosses",
             GridStyle::Dots => "Dots",
         }
