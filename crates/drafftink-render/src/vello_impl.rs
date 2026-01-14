@@ -1564,6 +1564,71 @@ impl VelloRenderer {
         );
     }
 
+    /// Render a small text badge (background rect + white text).
+    fn render_badge(&mut self, text: &str, center: Point, bg_color: Color, transform: Affine) {
+        use parley::{PositionedLayoutItem, StyleProperty};
+
+        let font_size = (10.0 / self.zoom) as f32;
+        let padding = 3.0 / self.zoom;
+
+        // Build text layout
+        let mut builder =
+            self.layout_cx
+                .ranged_builder(&mut self.font_cx, text, 1.0, false);
+        builder.push_default(StyleProperty::FontSize(font_size));
+        builder.push_default(StyleProperty::Brush(Brush::Solid(Color::WHITE)));
+        let mut layout = builder.build(text);
+        layout.break_all_lines(None);
+
+        let text_width = layout.width() as f64;
+        let text_height = layout.height() as f64;
+
+        // Background rect
+        let rect = Rect::new(
+            center.x - text_width / 2.0 - padding,
+            center.y - text_height / 2.0 - padding,
+            center.x + text_width / 2.0 + padding,
+            center.y + text_height / 2.0 + padding,
+        );
+        self.scene.fill(Fill::NonZero, transform, bg_color, None, &rect);
+
+        // Render text
+        let text_x = center.x - text_width / 2.0;
+        let text_y = center.y - text_height / 2.0;
+        let text_transform = transform * Affine::translate((text_x, text_y));
+
+        for line in layout.lines() {
+            for item in line.items() {
+                let PositionedLayoutItem::GlyphRun(glyph_run) = item else { continue };
+                let mut x = glyph_run.offset();
+                let y = glyph_run.baseline();
+                let run = glyph_run.run();
+                let font = run.font();
+                let font_size = run.font_size();
+
+                let glyphs: Vec<vello::Glyph> = glyph_run
+                    .glyphs()
+                    .map(|g| {
+                        let gx = x + g.x;
+                        let gy = y - g.y;
+                        x += g.advance;
+                        vello::Glyph { id: g.id, x: gx, y: gy }
+                    })
+                    .collect();
+
+                if !glyphs.is_empty() {
+                    self.scene
+                        .draw_glyphs(font)
+                        .brush(&Brush::Solid(Color::WHITE))
+                        .hint(true)
+                        .transform(text_transform)
+                        .font_size(font_size)
+                        .draw(Fill::NonZero, glyphs.iter().copied());
+                }
+            }
+        }
+    }
+
     /// Render smart guide lines (magenta alignment guides like Figma).
     fn render_smart_guides(
         &mut self,
@@ -1577,6 +1642,7 @@ impl VelloRenderer {
         let stroke = Stroke::new(stroke_width);
         let cap_size = 4.0 / self.zoom;
         let x_size = 3.0 / self.zoom;
+        let mut badges: Vec<(String, Point)> = Vec::new();
 
         for guide in guides {
             let mut path = BezPath::new();
@@ -1612,6 +1678,10 @@ impl VelloRenderer {
                     path.line_to(Point::new(guide.start, y + cap_size));
                     path.move_to(Point::new(guide.end, y - cap_size));
                     path.line_to(Point::new(guide.end, y + cap_size));
+                    // Queue badge
+                    let dist = (guide.end - guide.start).abs();
+                    let center = Point::new((guide.start + guide.end) / 2.0, y);
+                    badges.push((format!("{:.0}", dist), center));
                 }
                 SmartGuideKind::EqualSpacingV => {
                     // Vertical gap: line with horizontal end caps
@@ -1622,10 +1692,19 @@ impl VelloRenderer {
                     path.line_to(Point::new(x + cap_size, guide.start));
                     path.move_to(Point::new(x - cap_size, guide.end));
                     path.line_to(Point::new(x + cap_size, guide.end));
+                    // Queue badge
+                    let dist = (guide.end - guide.start).abs();
+                    let center = Point::new(x, (guide.start + guide.end) / 2.0);
+                    badges.push((format!("{:.0}", dist), center));
                 }
             }
             self.scene
                 .stroke(&stroke, transform, guide_color, None, &path);
+        }
+
+        // Render badges after all strokes
+        for (text, center) in badges {
+            self.render_badge(&text, center, guide_color, transform);
         }
     }
 
