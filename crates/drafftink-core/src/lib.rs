@@ -24,7 +24,8 @@ pub use input::InputState;
 pub use selection::{ManipulationState, MultiMoveState};
 pub use snap::{
     GRID_SIZE, SMART_GUIDE_THRESHOLD, SmartGuide, SmartGuideKind, SmartGuideResult, SnapResult,
-    detect_smart_guides, snap_point, snap_to_grid,
+    detect_smart_guides, detect_smart_guides_for_point, snap_point, snap_ray_to_smart_guides,
+    snap_to_grid,
 };
 pub use sync::{ConnectionState, PlatformWebSocket, SyncEvent};
 pub use widget::{EditingKind, Handle, HandleKind, HandleShape, WidgetManager, WidgetState};

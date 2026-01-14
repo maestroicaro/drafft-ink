@@ -3421,6 +3421,8 @@ impl ApplicationHandler for App {
                         None
                     };
 
+                let smart_guides = state.event_handler.smart_guides.clone();
+
                 let render_ctx = RenderContext::new(&state.canvas, viewport_size)
                     .with_scale_factor(state.window.scale_factor())
                     .with_background(state.config.background_color)
@@ -3430,6 +3432,7 @@ impl ApplicationHandler for App {
                     .with_snap_point(snap_point)
                     .with_angle_snap(angle_snap_info)
                     .with_rotation_info(rotation_info)
+                    .with_smart_guides(smart_guides)
                     .with_eraser_cursor(eraser_cursor)
                     .with_laser_pointer(laser_pointer);
 
@@ -3711,6 +3714,7 @@ impl ApplicationHandler for App {
                             world_point,
                             &state.input,
                             state.ui_state.grid_snap_enabled,
+                            state.ui_state.smart_snap_enabled,
                             state.ui_state.angle_snap_enabled,
                         );
 
@@ -3738,6 +3742,7 @@ impl ApplicationHandler for App {
                             world_point,
                             &state.input,
                             state.ui_state.grid_snap_enabled,
+                            state.ui_state.smart_snap_enabled,
                             state.ui_state.angle_snap_enabled,
                         );
                     } else if state.canvas.tool_manager.current_tool == ToolKind::Pan {
@@ -3754,6 +3759,7 @@ impl ApplicationHandler for App {
                             world_point,
                             &state.input,
                             state.ui_state.grid_snap_enabled,
+                            state.ui_state.smart_snap_enabled,
                             state.ui_state.angle_snap_enabled,
                         );
                     } else if state.canvas.tool_manager.is_active() {
@@ -3763,6 +3769,7 @@ impl ApplicationHandler for App {
                             world_point,
                             &state.input,
                             state.ui_state.grid_snap_enabled,
+                            state.ui_state.smart_snap_enabled,
                             state.ui_state.angle_snap_enabled,
                         );
 
@@ -4037,6 +4044,7 @@ impl ApplicationHandler for App {
                                     world_point,
                                     &state.input,
                                     state.ui_state.grid_snap_enabled,
+                                    state.ui_state.smart_snap_enabled,
                                     state.ui_state.angle_snap_enabled,
                                 );
                             }

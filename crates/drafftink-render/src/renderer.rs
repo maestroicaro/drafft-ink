@@ -2,6 +2,7 @@
 
 use drafftink_core::canvas::Canvas;
 use drafftink_core::shapes::Shape;
+use drafftink_core::snap::SmartGuide;
 use kurbo::{Affine, Rect, Size};
 use peniko::Color;
 use thiserror::Error;
@@ -109,6 +110,8 @@ pub struct RenderContext<'a> {
     pub angle_snap_info: Option<AngleSnapInfo>,
     /// Rotation visualization info (for rotation helper lines).
     pub rotation_info: Option<RotationInfo>,
+    /// Smart guides for alignment visualization.
+    pub smart_guides: Vec<SmartGuide>,
     /// Eraser cursor position and radius.
     pub eraser_cursor: Option<(kurbo::Point, f64)>,
     /// Laser pointer position and trail.
@@ -130,6 +133,7 @@ impl<'a> RenderContext<'a> {
             snap_point: None,
             angle_snap_info: None,
             rotation_info: None,
+            smart_guides: Vec::new(),
             eraser_cursor: None,
             laser_pointer: None,
         }
@@ -180,6 +184,12 @@ impl<'a> RenderContext<'a> {
     /// Set rotation info for rendering rotation helper lines.
     pub fn with_rotation_info(mut self, info: Option<RotationInfo>) -> Self {
         self.rotation_info = info;
+        self
+    }
+
+    /// Set smart guides for alignment visualization.
+    pub fn with_smart_guides(mut self, guides: Vec<SmartGuide>) -> Self {
+        self.smart_guides = guides;
         self
     }
 

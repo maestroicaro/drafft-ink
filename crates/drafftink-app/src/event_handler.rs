@@ -9,7 +9,9 @@ use drafftink_core::selection::{
 };
 use drafftink_core::shapes::{Freehand, Math, Shape, ShapeId, ShapeStyle, ShapeTrait, Text};
 use drafftink_core::snap::{
-    AngleSnapResult, GRID_SIZE, SnapResult, snap_line_endpoint_isometric, snap_to_grid,
+    AngleSnapResult, GRID_SIZE, SMART_GUIDE_THRESHOLD, SmartGuide, SnapResult,
+    detect_smart_guides, detect_smart_guides_for_point, snap_line_endpoint_isometric,
+    snap_ray_to_smart_guides, snap_to_grid,
 };
 use drafftink_core::tools::ToolKind;
 use kurbo::{Point, Rect};
@@ -77,6 +79,8 @@ pub struct EventHandler {
     pub last_angle_snap: Option<AngleSnapResult>,
     /// Start point for line/arrow drawing (for angle snap visualization).
     pub line_start_point: Option<Point>,
+    /// Current smart guides (for rendering).
+    pub smart_guides: Vec<SmartGuide>,
     /// Current rotation angle during rotation drag (for helper line rendering).
     pub rotation_state: Option<RotationState>,
     /// Eraser path points for current stroke.
@@ -115,6 +119,7 @@ impl EventHandler {
             last_snap: None,
             last_angle_snap: None,
             line_start_point: None,
+            smart_guides: Vec::new(),
             rotation_state: None,
             eraser_points: Vec::new(),
             eraser_radius: 10.0,
@@ -796,6 +801,7 @@ impl EventHandler {
 
     /// Handle a move event while dragging.
     /// `grid_snap_enabled` controls whether points should snap to grid.
+    /// `smart_snap_enabled` enables smart guide alignment.
     /// `angle_snap_enabled` enables 15° angle snapping for lines/arrows.
     pub fn handle_drag(
         &mut self,
@@ -803,11 +809,13 @@ impl EventHandler {
         world_point: Point,
         input: &InputState,
         grid_snap_enabled: bool,
+        smart_snap_enabled: bool,
         angle_snap_enabled: bool,
     ) {
         // Clear previous snap
         self.last_snap = None;
         self.last_angle_snap = None;
+        self.smart_guides.clear();
 
         // If we're manipulating a shape, update it
         if let Some(manip) = &mut self.manipulation {
@@ -853,30 +861,103 @@ impl EventHandler {
                 original_position.y + raw_delta.y,
             );
 
-            // For line/arrow endpoint manipulation, use angle/grid snapping
+            // For line/arrow endpoint manipulation, use angle/grid/smart snapping
             let snap_result = if is_line_or_arrow && manip.handle.is_some() {
                 // Get the other endpoint as the origin for polar snapping
                 let other_endpoint = get_line_other_endpoint(&manip.original_shape, manip.handle);
 
                 if angle_snap_enabled {
+                    // First snap angle for direction
                     let angle_result = snap_line_endpoint_isometric(
                         other_endpoint,
                         target_position,
-                        angle_snap_enabled,
-                        grid_snap_enabled,
+                        true,
+                        false, // Don't grid snap yet
                         false,
                         GRID_SIZE,
                     );
 
+                    let mut final_point = angle_result.point;
+
+                    // Then use smart guides for magnitude along the snapped angle ray
+                    if smart_snap_enabled {
+                        let other_bounds: Vec<Rect> = canvas
+                            .document
+                            .shapes_ordered()
+                            .filter(|s| s.id() != manip.shape_id)
+                            .map(|s| s.bounds())
+                            .collect();
+
+                        let guide_result = snap_ray_to_smart_guides(
+                            other_endpoint,
+                            angle_result.angle_degrees,
+                            angle_result.point,
+                            &other_bounds,
+                            SMART_GUIDE_THRESHOLD,
+                        );
+
+                        if guide_result.snapped_x || guide_result.snapped_y {
+                            final_point = guide_result.point;
+                            self.smart_guides = guide_result.guides;
+                        }
+                    }
+
+                    // Apply grid snap last if enabled (snap to grid line intersections on ray)
+                    if grid_snap_enabled && !smart_snap_enabled {
+                        let grid_result = snap_line_endpoint_isometric(
+                            other_endpoint,
+                            target_position,
+                            true,
+                            true,
+                            false,
+                            GRID_SIZE,
+                        );
+                        final_point = grid_result.point;
+                    }
+
                     if angle_result.snapped {
-                        self.last_angle_snap = Some(angle_result);
+                        self.last_angle_snap = Some(AngleSnapResult {
+                            point: final_point,
+                            ..angle_result
+                        });
                         self.line_start_point = Some(other_endpoint);
                     }
 
                     SnapResult {
-                        point: angle_result.point,
+                        point: final_point,
                         snapped_x: angle_result.snapped,
                         snapped_y: angle_result.snapped,
+                    }
+                } else if smart_snap_enabled {
+                    // Smart guides for line/arrow endpoints (no angle snap)
+                    let other_bounds: Vec<Rect> = canvas
+                        .document
+                        .shapes_ordered()
+                        .filter(|s| s.id() != manip.shape_id)
+                        .map(|s| s.bounds())
+                        .collect();
+
+                    let guide_result = detect_smart_guides_for_point(
+                        target_position,
+                        &other_bounds,
+                        SMART_GUIDE_THRESHOLD,
+                    );
+
+                    let mut result_point = guide_result.point;
+
+                    if grid_snap_enabled {
+                        let grid_result = snap_to_grid(result_point, GRID_SIZE);
+                        result_point = grid_result.point;
+                    }
+
+                    if guide_result.snapped_x || guide_result.snapped_y {
+                        self.smart_guides = guide_result.guides;
+                    }
+
+                    SnapResult {
+                        point: result_point,
+                        snapped_x: guide_result.snapped_x || grid_snap_enabled,
+                        snapped_y: guide_result.snapped_y || grid_snap_enabled,
                     }
                 } else if grid_snap_enabled {
                     snap_to_grid(target_position, GRID_SIZE)
@@ -930,30 +1011,52 @@ impl EventHandler {
                 world_point.y - mm.start_point.y,
             );
 
-            // For multi-move, use the first shape's top-left as reference for snapping
+            // For multi-move, use the first shape's bounds as reference for snapping
             let reference_shape = mm.original_shapes.values().next();
             let snap_result = if let Some(ref_shape) = reference_shape {
-                let original_position = ref_shape.bounds().origin();
-                let target_position = Point::new(
-                    original_position.x + raw_delta.x,
-                    original_position.y + raw_delta.y,
+                let original_bounds = ref_shape.bounds();
+                let target_bounds = Rect::new(
+                    original_bounds.x0 + raw_delta.x,
+                    original_bounds.y0 + raw_delta.y,
+                    original_bounds.x1 + raw_delta.x,
+                    original_bounds.y1 + raw_delta.y,
                 );
 
-                let snap_result = if grid_snap_enabled {
-                    snap_to_grid(target_position, GRID_SIZE)
-                } else {
-                    SnapResult::none(target_position)
-                };
+                // Collect other shape bounds for smart guide detection
+                let exclude_ids: Vec<ShapeId> = mm.original_shapes.keys().copied().collect();
+                let mut final_delta = raw_delta;
 
-                if snap_result.is_snapped() {
+                // Smart guides
+                if smart_snap_enabled {
+                    let other_bounds: Vec<Rect> = canvas
+                        .document
+                        .shapes_ordered()
+                        .filter(|s| !exclude_ids.contains(&s.id()))
+                        .map(|s| s.bounds())
+                        .collect();
+
+                    let guide_result =
+                        detect_smart_guides(target_bounds, &other_bounds, SMART_GUIDE_THRESHOLD);
+                    if guide_result.snapped_x || guide_result.snapped_y {
+                        final_delta.x += guide_result.point.x - target_bounds.x0;
+                        final_delta.y += guide_result.point.y - target_bounds.y0;
+                        self.smart_guides = guide_result.guides;
+                    }
+                }
+
+                // Grid snap (applied after smart guides)
+                if grid_snap_enabled {
+                    let target_pos = Point::new(
+                        original_bounds.x0 + final_delta.x,
+                        original_bounds.y0 + final_delta.y,
+                    );
+                    let snap_result = snap_to_grid(target_pos, GRID_SIZE);
+                    final_delta.x = snap_result.point.x - original_bounds.x0;
+                    final_delta.y = snap_result.point.y - original_bounds.y0;
                     self.last_snap = Some(snap_result);
                 }
 
-                // Calculate adjusted delta based on snapped position
-                kurbo::Vec2::new(
-                    snap_result.point.x - original_position.x,
-                    snap_result.point.y - original_position.y,
-                )
+                final_delta
             } else {
                 raw_delta
             };
@@ -1067,6 +1170,7 @@ impl EventHandler {
         self.last_snap = None;
         self.last_angle_snap = None;
         self.line_start_point = None;
+        self.smart_guides.clear();
     }
 
     /// Apply eraser to shapes that intersect with the eraser path.

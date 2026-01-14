@@ -28,8 +28,10 @@ pub enum SmartGuideKind {
     Vertical,
     /// Horizontal alignment line (same y).
     Horizontal,
-    /// Equal spacing indicator.
-    EqualSpacing,
+    /// Horizontal equal spacing indicator (gaps left/right).
+    EqualSpacingH,
+    /// Vertical equal spacing indicator (gaps top/bottom).
+    EqualSpacingV,
 }
 
 /// Result of smart guide detection.
@@ -60,9 +62,248 @@ pub fn detect_smart_guides(
 
     let dragged_cx = (dragged_bounds.x0 + dragged_bounds.x1) / 2.0;
     let dragged_cy = (dragged_bounds.y0 + dragged_bounds.y1) / 2.0;
+    let dragged_w = dragged_bounds.x1 - dragged_bounds.x0;
+    let dragged_h = dragged_bounds.y1 - dragged_bounds.y0;
 
-    let mut best_dx: Option<(f64, f64)> = None; // (snap_x, guide_x)
-    let mut best_dy: Option<(f64, f64)> = None; // (snap_y, guide_y)
+    let mut best_dx: Option<(f64, f64, Rect)> = None;
+    let mut best_dy: Option<(f64, f64, Rect)> = None;
+    let mut best_dist_x = threshold;
+    let mut best_dist_y = threshold;
+
+    // Edge/center alignment
+    for other in other_bounds {
+        let other_cx = (other.x0 + other.x1) / 2.0;
+        let other_cy = (other.y0 + other.y1) / 2.0;
+
+        for dragged_x in [dragged_bounds.x0, dragged_bounds.x1, dragged_cx] {
+            for other_x in [other.x0, other.x1, other_cx] {
+                let dist = (dragged_x - other_x).abs();
+                if dist < best_dist_x {
+                    best_dist_x = dist;
+                    let snap_x = dragged_bounds.x0 + (other_x - dragged_x);
+                    best_dx = Some((snap_x, other_x, *other));
+                }
+            }
+        }
+
+        for dragged_y in [dragged_bounds.y0, dragged_bounds.y1, dragged_cy] {
+            for other_y in [other.y0, other.y1, other_cy] {
+                let dist = (dragged_y - other_y).abs();
+                if dist < best_dist_y {
+                    best_dist_y = dist;
+                    let snap_y = dragged_bounds.y0 + (other_y - dragged_y);
+                    best_dy = Some((snap_y, other_y, *other));
+                }
+            }
+        }
+    }
+
+    // Equal spacing detection
+    for i in 0..other_bounds.len() {
+        for j in 0..other_bounds.len() {
+            if i == j {
+                continue;
+            }
+            let a = &other_bounds[i];
+            let b = &other_bounds[j];
+
+            // Horizontal: A is left of B
+            if a.x1 < b.x0 {
+                let gap_ab = b.x0 - a.x1;
+
+                // Case 1: dragged between A and B (equal gaps on both sides)
+                let target_between = a.x1 + (gap_ab - dragged_w) / 2.0;
+                let dist_between = (dragged_bounds.x0 - target_between).abs();
+                if dist_between < best_dist_x && gap_ab > dragged_w {
+                    best_dist_x = dist_between;
+                    best_dx = Some((target_between, target_between + dragged_w / 2.0, *a));
+                    result.guides.retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingH));
+                    let cy = dragged_cy;
+                    result.guides.push(SmartGuide {
+                        kind: SmartGuideKind::EqualSpacingH,
+                        position: cy,
+                        start: a.x1,
+                        end: target_between,
+                    });
+                    result.guides.push(SmartGuide {
+                        kind: SmartGuideKind::EqualSpacingH,
+                        position: cy,
+                        start: target_between + dragged_w,
+                        end: b.x0,
+                    });
+                }
+
+                // Case 2: dragged to the right of B, matching gap A-B
+                let target_right = b.x1 + gap_ab;
+                let dist_right = (dragged_bounds.x0 - target_right).abs();
+                if dist_right < best_dist_x {
+                    best_dist_x = dist_right;
+                    best_dx = Some((target_right, target_right + dragged_w / 2.0, *b));
+                    result.guides.retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingH));
+                    let cy = dragged_cy;
+                    result.guides.push(SmartGuide {
+                        kind: SmartGuideKind::EqualSpacingH,
+                        position: (a.y0 + a.y1) / 2.0,
+                        start: a.x1,
+                        end: b.x0,
+                    });
+                    result.guides.push(SmartGuide {
+                        kind: SmartGuideKind::EqualSpacingH,
+                        position: cy,
+                        start: b.x1,
+                        end: target_right,
+                    });
+                }
+
+                // Case 3: dragged to the left of A, matching gap A-B
+                let target_left = a.x0 - gap_ab - dragged_w;
+                let dist_left = (dragged_bounds.x0 - target_left).abs();
+                if dist_left < best_dist_x {
+                    best_dist_x = dist_left;
+                    best_dx = Some((target_left, target_left + dragged_w / 2.0, *a));
+                    result.guides.retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingH));
+                    let cy = dragged_cy;
+                    result.guides.push(SmartGuide {
+                        kind: SmartGuideKind::EqualSpacingH,
+                        position: cy,
+                        start: target_left + dragged_w,
+                        end: a.x0,
+                    });
+                    result.guides.push(SmartGuide {
+                        kind: SmartGuideKind::EqualSpacingH,
+                        position: (b.y0 + b.y1) / 2.0,
+                        start: a.x1,
+                        end: b.x0,
+                    });
+                }
+            }
+
+            // Vertical: A is above B
+            if a.y1 < b.y0 {
+                let gap_ab = b.y0 - a.y1;
+
+                // Case 1: dragged between A and B
+                let target_between = a.y1 + (gap_ab - dragged_h) / 2.0;
+                let dist_between = (dragged_bounds.y0 - target_between).abs();
+                if dist_between < best_dist_y && gap_ab > dragged_h {
+                    best_dist_y = dist_between;
+                    best_dy = Some((target_between, target_between + dragged_h / 2.0, *a));
+                    result.guides.retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingV));
+                    let cx = dragged_cx;
+                    result.guides.push(SmartGuide {
+                        kind: SmartGuideKind::EqualSpacingV,
+                        position: cx,
+                        start: a.y1,
+                        end: target_between,
+                    });
+                    result.guides.push(SmartGuide {
+                        kind: SmartGuideKind::EqualSpacingV,
+                        position: cx,
+                        start: target_between + dragged_h,
+                        end: b.y0,
+                    });
+                }
+
+                // Case 2: dragged below B, matching gap A-B
+                let target_below = b.y1 + gap_ab;
+                let dist_below = (dragged_bounds.y0 - target_below).abs();
+                if dist_below < best_dist_y {
+                    best_dist_y = dist_below;
+                    best_dy = Some((target_below, target_below + dragged_h / 2.0, *b));
+                    result.guides.retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingV));
+                    let cx = dragged_cx;
+                    result.guides.push(SmartGuide {
+                        kind: SmartGuideKind::EqualSpacingV,
+                        position: (a.x0 + a.x1) / 2.0,
+                        start: a.y1,
+                        end: b.y0,
+                    });
+                    result.guides.push(SmartGuide {
+                        kind: SmartGuideKind::EqualSpacingV,
+                        position: cx,
+                        start: b.y1,
+                        end: target_below,
+                    });
+                }
+
+                // Case 3: dragged above A, matching gap A-B
+                let target_above = a.y0 - gap_ab - dragged_h;
+                let dist_above = (dragged_bounds.y0 - target_above).abs();
+                if dist_above < best_dist_y {
+                    best_dist_y = dist_above;
+                    best_dy = Some((target_above, target_above + dragged_h / 2.0, *a));
+                    result.guides.retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingV));
+                    let cx = dragged_cx;
+                    result.guides.push(SmartGuide {
+                        kind: SmartGuideKind::EqualSpacingV,
+                        position: cx,
+                        start: target_above + dragged_h,
+                        end: a.y0,
+                    });
+                    result.guides.push(SmartGuide {
+                        kind: SmartGuideKind::EqualSpacingV,
+                        position: (b.x0 + b.x1) / 2.0,
+                        start: a.y1,
+                        end: b.y0,
+                    });
+                }
+            }
+        }
+    }
+
+    // Apply snaps
+    if let Some((snap_x, guide_x, other)) = best_dx {
+        result.point.x = snap_x;
+        result.snapped_x = true;
+        let snapped_y0 = dragged_bounds.y0;
+        let snapped_y1 = dragged_bounds.y1;
+        let min_y = snapped_y0.min(snapped_y1).min(other.y0).min(other.y1);
+        let max_y = snapped_y0.max(snapped_y1).max(other.y0).max(other.y1);
+        result.guides.push(SmartGuide {
+            kind: SmartGuideKind::Vertical,
+            position: guide_x,
+            start: min_y,
+            end: max_y,
+        });
+    }
+
+    if let Some((snap_y, guide_y, other)) = best_dy {
+        result.point.y = snap_y;
+        result.snapped_y = true;
+        let snapped_x0 = if result.snapped_x {
+            result.point.x
+        } else {
+            dragged_bounds.x0
+        };
+        let snapped_x1 = snapped_x0 + dragged_w;
+        let min_x = snapped_x0.min(snapped_x1).min(other.x0).min(other.x1);
+        let max_x = snapped_x0.max(snapped_x1).max(other.x0).max(other.x1);
+        result.guides.push(SmartGuide {
+            kind: SmartGuideKind::Horizontal,
+            position: guide_y,
+            start: min_x,
+            end: max_x,
+        });
+    }
+
+    result
+}
+
+/// Detect smart guides for a single point (e.g., line/arrow endpoint) against shape bounds.
+pub fn detect_smart_guides_for_point(
+    point: Point,
+    other_bounds: &[Rect],
+    threshold: f64,
+) -> SmartGuideResult {
+    let mut result = SmartGuideResult {
+        point,
+        guides: Vec::new(),
+        snapped_x: false,
+        snapped_y: false,
+    };
+
+    let mut best_dx: Option<(f64, f64, f64, f64)> = None; // (snap_x, guide_x, other_y0, other_y1)
+    let mut best_dy: Option<(f64, f64, f64, f64)> = None; // (snap_y, guide_y, other_x0, other_x1)
     let mut best_dist_x = threshold;
     let mut best_dist_y = threshold;
 
@@ -71,59 +312,145 @@ pub fn detect_smart_guides(
         let other_cy = (other.y0 + other.y1) / 2.0;
 
         // Check vertical alignments (x positions)
-        for dragged_x in [
-            dragged_bounds.x0,
-            dragged_bounds.x1,
-            dragged_cx,
-        ] {
-            for other_x in [other.x0, other.x1, other_cx] {
-                let dist = (dragged_x - other_x).abs();
-                if dist < best_dist_x {
-                    best_dist_x = dist;
-                    let snap_x = dragged_bounds.x0 + (other_x - dragged_x);
-                    best_dx = Some((snap_x, other_x));
-                }
+        for other_x in [other.x0, other.x1, other_cx] {
+            let dist = (point.x - other_x).abs();
+            if dist < best_dist_x {
+                best_dist_x = dist;
+                best_dx = Some((other_x, other_x, other.y0, other.y1));
             }
         }
 
         // Check horizontal alignments (y positions)
-        for dragged_y in [
-            dragged_bounds.y0,
-            dragged_bounds.y1,
-            dragged_cy,
-        ] {
+        for other_y in [other.y0, other.y1, other_cy] {
+            let dist = (point.y - other_y).abs();
+            if dist < best_dist_y {
+                best_dist_y = dist;
+                best_dy = Some((other_y, other_y, other.x0, other.x1));
+            }
+        }
+    }
+
+    if let Some((snap_x, guide_x, other_y0, other_y1)) = best_dx {
+        result.point.x = snap_x;
+        result.snapped_x = true;
+        let min_y = point.y.min(other_y0).min(other_y1);
+        let max_y = point.y.max(other_y0).max(other_y1);
+        result.guides.push(SmartGuide {
+            kind: SmartGuideKind::Vertical,
+            position: guide_x,
+            start: min_y,
+            end: max_y,
+        });
+    }
+
+    if let Some((snap_y, guide_y, other_x0, other_x1)) = best_dy {
+        result.point.y = snap_y;
+        result.snapped_y = true;
+        let snapped_x = if result.snapped_x { result.point.x } else { point.x };
+        let min_x = snapped_x.min(other_x0).min(other_x1);
+        let max_x = snapped_x.max(other_x0).max(other_x1);
+        result.guides.push(SmartGuide {
+            kind: SmartGuideKind::Horizontal,
+            position: guide_y,
+            start: min_x,
+            end: max_x,
+        });
+    }
+
+    result
+}
+
+/// Snap a point along an angle ray to smart guides.
+/// Returns the intersection of the ray with the nearest aligned shape edge.
+pub fn snap_ray_to_smart_guides(
+    origin: Point,
+    angle_degrees: f64,
+    target_point: Point,
+    other_bounds: &[Rect],
+    threshold: f64,
+) -> SmartGuideResult {
+    let angle_rad = angle_degrees.to_radians();
+    let cos_a = angle_rad.cos();
+    let sin_a = angle_rad.sin();
+
+    let mut result = SmartGuideResult {
+        point: target_point,
+        guides: Vec::new(),
+        snapped_x: false,
+        snapped_y: false,
+    };
+
+    let mut best_t: Option<(f64, Point, SmartGuide)> = None;
+    let mut best_dist = f64::MAX;
+
+    for other in other_bounds {
+        let other_cx = (other.x0 + other.x1) / 2.0;
+        let other_cy = (other.y0 + other.y1) / 2.0;
+
+        // Check vertical lines (x positions)
+        if cos_a.abs() > 0.001 {
+            for other_x in [other.x0, other.x1, other_cx] {
+                let t = (other_x - origin.x) / cos_a;
+                if t > 0.0 {
+                    let intersect_y = origin.y + t * sin_a;
+                    let intersect = Point::new(other_x, intersect_y);
+                    let dist = ((intersect.x - target_point.x).powi(2)
+                        + (intersect.y - target_point.y).powi(2))
+                    .sqrt();
+                    if dist < threshold && dist < best_dist {
+                        best_dist = dist;
+                        let min_y = intersect_y.min(other.y0).min(other.y1);
+                        let max_y = intersect_y.max(other.y0).max(other.y1);
+                        best_t = Some((
+                            t,
+                            intersect,
+                            SmartGuide {
+                                kind: SmartGuideKind::Vertical,
+                                position: other_x,
+                                start: min_y,
+                                end: max_y,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Check horizontal lines (y positions)
+        if sin_a.abs() > 0.001 {
             for other_y in [other.y0, other.y1, other_cy] {
-                let dist = (dragged_y - other_y).abs();
-                if dist < best_dist_y {
-                    best_dist_y = dist;
-                    let snap_y = dragged_bounds.y0 + (other_y - dragged_y);
-                    best_dy = Some((snap_y, other_y));
+                let t = (other_y - origin.y) / sin_a;
+                if t > 0.0 {
+                    let intersect_x = origin.x + t * cos_a;
+                    let intersect = Point::new(intersect_x, other_y);
+                    let dist = ((intersect.x - target_point.x).powi(2)
+                        + (intersect.y - target_point.y).powi(2))
+                    .sqrt();
+                    if dist < threshold && dist < best_dist {
+                        best_dist = dist;
+                        let min_x = intersect_x.min(other.x0).min(other.x1);
+                        let max_x = intersect_x.max(other.x0).max(other.x1);
+                        best_t = Some((
+                            t,
+                            intersect,
+                            SmartGuide {
+                                kind: SmartGuideKind::Horizontal,
+                                position: other_y,
+                                start: min_x,
+                                end: max_x,
+                            },
+                        ));
+                    }
                 }
             }
         }
     }
 
-    // Apply snaps and create guides
-    if let Some((snap_x, guide_x)) = best_dx {
-        result.point.x = snap_x;
+    if let Some((_, point, guide)) = best_t {
+        result.point = point;
         result.snapped_x = true;
-        result.guides.push(SmartGuide {
-            kind: SmartGuideKind::Vertical,
-            position: guide_x,
-            start: dragged_bounds.y0.min(dragged_bounds.y1) - 20.0,
-            end: dragged_bounds.y0.max(dragged_bounds.y1) + 20.0,
-        });
-    }
-
-    if let Some((snap_y, guide_y)) = best_dy {
-        result.point.y = snap_y;
         result.snapped_y = true;
-        result.guides.push(SmartGuide {
-            kind: SmartGuideKind::Horizontal,
-            position: guide_y,
-            start: dragged_bounds.x0.min(dragged_bounds.x1) - 20.0,
-            end: dragged_bounds.x0.max(dragged_bounds.x1) + 20.0,
-        });
+        result.guides.push(guide);
     }
 
     result

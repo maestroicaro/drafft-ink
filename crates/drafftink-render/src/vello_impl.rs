@@ -1484,6 +1484,11 @@ impl Renderer for VelloRenderer {
             self.render_selection_rect(rect, camera_transform);
         }
 
+        // Draw smart guides
+        if !ctx.smart_guides.is_empty() {
+            self.render_smart_guides(&ctx.smart_guides, camera_transform);
+        }
+
         // Draw snap guides
         if let Some(snap_point) = ctx.snap_point {
             self.render_snap_guides(snap_point, camera_transform, ctx.viewport_size);
@@ -1557,6 +1562,56 @@ impl VelloRenderer {
             None,
             &circle,
         );
+    }
+
+    /// Render smart guide lines (magenta alignment guides like Figma).
+    fn render_smart_guides(
+        &mut self,
+        guides: &[drafftink_core::snap::SmartGuide],
+        transform: Affine,
+    ) {
+        use drafftink_core::snap::SmartGuideKind;
+
+        let guide_color = Color::from_rgba8(236, 72, 153, 255); // Pink/magenta
+        let stroke_width = 1.0 / self.zoom;
+        let stroke = Stroke::new(stroke_width);
+        let cap_size = 4.0 / self.zoom;
+
+        for guide in guides {
+            let mut path = BezPath::new();
+            match guide.kind {
+                SmartGuideKind::Vertical => {
+                    path.move_to(Point::new(guide.position, guide.start));
+                    path.line_to(Point::new(guide.position, guide.end));
+                }
+                SmartGuideKind::Horizontal => {
+                    path.move_to(Point::new(guide.start, guide.position));
+                    path.line_to(Point::new(guide.end, guide.position));
+                }
+                SmartGuideKind::EqualSpacingH => {
+                    // Horizontal gap: line with vertical end caps
+                    let y = guide.position;
+                    path.move_to(Point::new(guide.start, y));
+                    path.line_to(Point::new(guide.end, y));
+                    path.move_to(Point::new(guide.start, y - cap_size));
+                    path.line_to(Point::new(guide.start, y + cap_size));
+                    path.move_to(Point::new(guide.end, y - cap_size));
+                    path.line_to(Point::new(guide.end, y + cap_size));
+                }
+                SmartGuideKind::EqualSpacingV => {
+                    // Vertical gap: line with horizontal end caps
+                    let x = guide.position;
+                    path.move_to(Point::new(x, guide.start));
+                    path.line_to(Point::new(x, guide.end));
+                    path.move_to(Point::new(x - cap_size, guide.start));
+                    path.line_to(Point::new(x + cap_size, guide.start));
+                    path.move_to(Point::new(x - cap_size, guide.end));
+                    path.line_to(Point::new(x + cap_size, guide.end));
+                }
+            }
+            self.scene
+                .stroke(&stroke, transform, guide_color, None, &path);
+        }
     }
 
     /// Render angle snap visualization (polar rays and angle arc).
