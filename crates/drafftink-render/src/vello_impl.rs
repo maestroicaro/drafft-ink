@@ -3,7 +3,7 @@
 use crate::renderer::{RenderContext, Renderer, ShapeRenderer};
 use crate::text_editor::TextEditState;
 use drafftink_core::selection::{Handle, HandleKind, get_handles};
-use drafftink_core::shapes::{FillPattern, Shape, ShapeStyle, ShapeTrait};
+use drafftink_core::shapes::{FillPattern, Shape, ShapeStyle, ShapeTrait, StrokeStyle};
 use drafftink_core::snap::{SnapTarget, SnapTargetKind};
 use kurbo::{Affine, BezPath, PathEl, Point, Rect, Shape as KurboShape, Stroke};
 use parley::layout::PositionedLayoutItem;
@@ -541,12 +541,33 @@ impl VelloRenderer {
     }
 
     /// Render a path with stroke only (no fill) - used for lines and arrows.
-    fn render_stroke_only(&mut self, path: &BezPath, style: &ShapeStyle, transform: Affine) {
+    fn render_stroke_only(
+        &mut self,
+        path: &BezPath,
+        style: &ShapeStyle,
+        stroke_style: StrokeStyle,
+        transform: Affine,
+    ) {
         let roughness = style.sloppiness.roughness();
         let seed = style.seed;
 
+        // Create stroke with dash pattern based on stroke_style
+        let mut stroke = Stroke::new(style.stroke_width);
+        match stroke_style {
+            StrokeStyle::Solid => {}
+            StrokeStyle::Dashed => {
+                let dash_len = style.stroke_width * 4.0;
+                let gap_len = style.stroke_width * 2.0;
+                stroke = stroke.with_dashes(0.0, [dash_len, gap_len]);
+            }
+            StrokeStyle::Dotted => {
+                let dot_len = style.stroke_width;
+                let gap_len = style.stroke_width * 2.0;
+                stroke = stroke.with_dashes(0.0, [dot_len, gap_len]);
+            }
+        }
+
         if roughness > 0.0 {
-            let stroke = Stroke::new(style.stroke_width);
             let path1 = apply_hand_drawn_effect(path, roughness, self.zoom, seed, 0);
             self.scene.stroke(
                 &stroke,
@@ -564,7 +585,6 @@ impl VelloRenderer {
                 &path2,
             );
         } else {
-            let stroke = Stroke::new(style.stroke_width);
             self.scene
                 .stroke(&stroke, transform, style.stroke_with_opacity(), None, path);
         }
@@ -2101,10 +2121,13 @@ impl ShapeRenderer for VelloRenderer {
             Shape::Image(image) => {
                 self.render_image(image, shape_transform);
             }
-            Shape::Line(_) | Shape::Arrow(_) => {
-                // Lines and arrows have no fill
+            Shape::Line(line) => {
                 let path = shape.to_path();
-                self.render_stroke_only(&path, shape.style(), shape_transform);
+                self.render_stroke_only(&path, shape.style(), line.stroke_style, shape_transform);
+            }
+            Shape::Arrow(arrow) => {
+                let path = shape.to_path();
+                self.render_stroke_only(&path, shape.style(), arrow.stroke_style, shape_transform);
             }
             Shape::Freehand(freehand) => {
                 // Freehand with pressure support
@@ -2112,7 +2135,7 @@ impl ShapeRenderer for VelloRenderer {
                     self.render_freehand_with_pressure(freehand, shape_transform);
                 } else {
                     let path = shape.to_path();
-                    self.render_stroke_only(&path, shape.style(), shape_transform);
+                    self.render_stroke_only(&path, shape.style(), StrokeStyle::Solid, shape_transform);
                 }
             }
             Shape::Math(math) => {

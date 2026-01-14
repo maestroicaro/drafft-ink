@@ -52,6 +52,8 @@ pub struct SelectedShapeProps {
     pub corner_radius: f32,
     /// Path style for lines/arrows (0 = Direct, 1 = Flowing, 2 = Angular).
     pub path_style: u8,
+    /// Stroke style for lines/arrows (0 = Solid, 1 = Dashed, 2 = Dotted).
+    pub stroke_style: u8,
     /// Sloppiness level (0 = Architect, 1 = Artist, 2 = Cartoonist).
     pub sloppiness: u8,
     /// Fill pattern (0 = Solid, 1 = Hachure, etc).
@@ -113,6 +115,7 @@ impl SelectedShapeProps {
                 selection_count: count,
                 is_line: true,
                 path_style: line.path_style as u8,
+                stroke_style: line.stroke_style as u8,
                 sloppiness,
                 fill_pattern,
                 has_fill,
@@ -124,6 +127,7 @@ impl SelectedShapeProps {
                 selection_count: count,
                 is_arrow: true,
                 path_style: arrow.path_style as u8,
+                stroke_style: arrow.stroke_style as u8,
                 sloppiness,
                 fill_pattern,
                 has_fill,
@@ -450,6 +454,8 @@ pub enum UiAction {
     SetFillPattern(u8), // 0 = Solid, 1 = Hachure, 2 = ZigZag, 3 = CrossHatch, 4 = Dots, 5 = Dashed, 6 = ZigZagLine
     /// Set path style for selected lines/arrows.
     SetPathStyle(u8), // 0 = Direct, 1 = Flowing, 2 = Angular
+    /// Set stroke style for selected lines/arrows.
+    SetStrokeStyle(u8), // 0 = Solid, 1 = Dashed, 2 = Dotted
     /// Undo the last action.
     Undo,
     /// Redo the last undone action.
@@ -1495,6 +1501,32 @@ fn render_right_panel(ctx: &Context, props: &SelectedShapeProps) -> Option<UiAct
                                 if ToggleButton::new("Angular", is_angular).show(ui) && !is_angular
                                 {
                                     action = Some(UiAction::SetPathStyle(2));
+                                }
+                            });
+
+                            // Stroke style (solid/dashed/dotted)
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new("Stroke")
+                                    .size(11.0)
+                                    .color(Color32::from_gray(100)),
+                            );
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
+
+                                let is_solid = props.stroke_style == 0;
+                                if ToggleButton::new("Solid", is_solid).show(ui) && !is_solid {
+                                    action = Some(UiAction::SetStrokeStyle(0));
+                                }
+
+                                let is_dashed = props.stroke_style == 1;
+                                if ToggleButton::new("Dashed", is_dashed).show(ui) && !is_dashed {
+                                    action = Some(UiAction::SetStrokeStyle(1));
+                                }
+
+                                let is_dotted = props.stroke_style == 2;
+                                if ToggleButton::new("Dotted", is_dotted).show(ui) && !is_dotted {
+                                    action = Some(UiAction::SetStrokeStyle(2));
                                 }
                             });
                         }

@@ -2,7 +2,8 @@
 
 use crate::shapes::{
     Arrow, Ellipse, FillPattern, FontFamily, FontWeight, Freehand, Group, Image, ImageFormat, Line,
-    Math, PathStyle, Rectangle, SerializableColor, Shape, ShapeStyle, ShapeTrait, Sloppiness, Text,
+    Math, PathStyle, Rectangle, SerializableColor, Shape, ShapeStyle, ShapeTrait, Sloppiness,
+    StrokeStyle, Text,
 };
 use kurbo::Point;
 use loro::{LoroList, LoroMap, LoroMapValue, LoroResult, LoroValue};
@@ -54,6 +55,7 @@ const KEY_END_X: &str = "end_x";
 const KEY_END_Y: &str = "end_y";
 const KEY_INTERMEDIATE_POINTS: &str = "intermediate_points";
 const KEY_PATH_STYLE: &str = "path_style";
+const KEY_STROKE_STYLE: &str = "stroke_style";
 const KEY_HEAD_SIZE: &str = "head_size";
 
 // Freehand keys
@@ -143,6 +145,7 @@ pub fn shape_to_loro(shape: &Shape, map: &LoroMap) -> LoroResult<()> {
             map.insert(KEY_END_X, line.end.x)?;
             map.insert(KEY_END_Y, line.end.y)?;
             map.insert(KEY_PATH_STYLE, path_style_to_i64(line.path_style))?;
+            map.insert(KEY_STROKE_STYLE, stroke_style_to_i64(line.stroke_style))?;
             let pts_list = map.insert_container(KEY_INTERMEDIATE_POINTS, LoroList::new())?;
             for p in &line.intermediate_points {
                 let pt = pts_list.insert_container(pts_list.len(), LoroList::new())?;
@@ -160,6 +163,7 @@ pub fn shape_to_loro(shape: &Shape, map: &LoroMap) -> LoroResult<()> {
             map.insert(KEY_END_Y, arrow.end.y)?;
             map.insert(KEY_HEAD_SIZE, arrow.head_size)?;
             map.insert(KEY_PATH_STYLE, path_style_to_i64(arrow.path_style))?;
+            map.insert(KEY_STROKE_STYLE, stroke_style_to_i64(arrow.stroke_style))?;
             let pts_list = map.insert_container(KEY_INTERMEDIATE_POINTS, LoroList::new())?;
             for p in &arrow.intermediate_points {
                 let pt = pts_list.insert_container(pts_list.len(), LoroList::new())?;
@@ -325,6 +329,9 @@ fn line_from_loro(map: &LoroMapValue) -> Option<Shape> {
         get_i64(map, KEY_PATH_STYLE)
             .map(i64_to_path_style)
             .unwrap_or_default(),
+        get_i64(map, KEY_STROKE_STYLE)
+            .map(i64_to_stroke_style)
+            .unwrap_or_default(),
         style_from_loro(map)?,
     )))
 }
@@ -337,6 +344,9 @@ fn arrow_from_loro(map: &LoroMapValue) -> Option<Shape> {
         points_from_loro(map, KEY_INTERMEDIATE_POINTS),
         get_i64(map, KEY_PATH_STYLE)
             .map(i64_to_path_style)
+            .unwrap_or_default(),
+        get_i64(map, KEY_STROKE_STYLE)
+            .map(i64_to_stroke_style)
             .unwrap_or_default(),
         get_double(map, KEY_HEAD_SIZE).unwrap_or(15.0),
         style_from_loro(map)?,
@@ -569,6 +579,22 @@ fn i64_to_path_style(v: i64) -> PathStyle {
         0 => PathStyle::Direct,
         1 => PathStyle::Flowing,
         _ => PathStyle::Angular,
+    }
+}
+
+fn stroke_style_to_i64(s: StrokeStyle) -> i64 {
+    match s {
+        StrokeStyle::Solid => 0,
+        StrokeStyle::Dashed => 1,
+        StrokeStyle::Dotted => 2,
+    }
+}
+
+fn i64_to_stroke_style(v: i64) -> StrokeStyle {
+    match v {
+        0 => StrokeStyle::Solid,
+        1 => StrokeStyle::Dashed,
+        _ => StrokeStyle::Dotted,
     }
 }
 

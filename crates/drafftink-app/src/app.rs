@@ -2645,6 +2645,42 @@ impl ApplicationHandler for App {
                                     }
                                 }
                             }
+                            UiAction::SetStrokeStyle(level) => {
+                                use drafftink_core::shapes::StrokeStyle;
+                                let stroke_style = match level {
+                                    0 => StrokeStyle::Solid,
+                                    1 => StrokeStyle::Dashed,
+                                    _ => StrokeStyle::Dotted,
+                                };
+                                let has_selection = !state.canvas.selection.is_empty();
+                                // Apply to selected lines/arrows
+                                for &shape_id in &state.canvas.selection.clone() {
+                                    if let Some(shape) =
+                                        state.canvas.document.get_shape_mut(shape_id)
+                                    {
+                                        match shape {
+                                            Shape::Line(line) => {
+                                                line.stroke_style = stroke_style;
+                                            }
+                                            Shape::Arrow(arrow) => {
+                                                arrow.stroke_style = stroke_style;
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                log::info!("StrokeStyle: {:?}", stroke_style);
+                                // Sync property changes
+                                if has_selection && state.collab.is_in_room() {
+                                    state.collab.sync_to_crdt(&state.canvas.document);
+                                    state.collab.broadcast_sync();
+                                    if let Some(ref ws) = state.websocket {
+                                        for msg in state.collab.take_outgoing() {
+                                            let _ = ws.send(&msg);
+                                        }
+                                    }
+                                }
+                            }
                             UiAction::Undo => {
                                 if state.canvas.document.undo() {
                                     state.canvas.clear_selection();

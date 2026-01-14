@@ -142,6 +142,26 @@ impl FillPattern {
     }
 }
 
+/// Stroke style for lines and arrows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum StrokeStyle {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+}
+
+impl StrokeStyle {
+    /// Cycle to the next stroke style.
+    pub fn next(self) -> Self {
+        match self {
+            StrokeStyle::Solid => StrokeStyle::Dashed,
+            StrokeStyle::Dashed => StrokeStyle::Dotted,
+            StrokeStyle::Dotted => StrokeStyle::Solid,
+        }
+    }
+}
+
 /// Style properties for shapes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShapeStyle {

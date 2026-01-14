@@ -1,6 +1,6 @@
 //! Line shape.
 
-use super::{ShapeId, ShapeStyle, ShapeTrait};
+use super::{ShapeId, ShapeStyle, ShapeTrait, StrokeStyle};
 use kurbo::{Affine, BezPath, Line as KurboLine, Point, Rect};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -31,6 +31,9 @@ pub struct Line {
     /// Path style (Direct, Flowing, Angular).
     #[serde(default)]
     pub path_style: PathStyle,
+    /// Stroke style (Solid, Dashed, Dotted).
+    #[serde(default)]
+    pub stroke_style: StrokeStyle,
     /// Style properties.
     pub style: ShapeStyle,
 }
@@ -44,6 +47,7 @@ impl Line {
             end,
             intermediate_points: Vec::new(),
             path_style: PathStyle::Direct,
+            stroke_style: StrokeStyle::default(),
             style: ShapeStyle::default(),
         }
     }
@@ -55,6 +59,7 @@ impl Line {
         end: Point,
         intermediate_points: Vec<Point>,
         path_style: PathStyle,
+        stroke_style: StrokeStyle,
         style: ShapeStyle,
     ) -> Self {
         Self {
@@ -63,6 +68,7 @@ impl Line {
             end,
             intermediate_points,
             path_style,
+            stroke_style,
             style,
         }
     }
@@ -82,6 +88,7 @@ impl Line {
             end,
             intermediate_points,
             path_style,
+            stroke_style: StrokeStyle::default(),
             style: ShapeStyle::default(),
         }
     }

@@ -1,7 +1,7 @@
 //! Arrow shape.
 
 use super::line::PathStyle;
-use super::{ShapeId, ShapeStyle, ShapeTrait};
+use super::{ShapeId, ShapeStyle, ShapeTrait, StrokeStyle};
 use kurbo::{Affine, BezPath, Point, Rect, Vec2};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -20,6 +20,9 @@ pub struct Arrow {
     /// Path style (Direct, Flowing, Angular).
     #[serde(default)]
     pub path_style: PathStyle,
+    /// Stroke style (Solid, Dashed, Dotted).
+    #[serde(default)]
+    pub stroke_style: StrokeStyle,
     /// Size of the arrowhead.
     pub head_size: f64,
     /// Style properties.
@@ -35,6 +38,7 @@ impl Arrow {
             end,
             intermediate_points: Vec::new(),
             path_style: PathStyle::Direct,
+            stroke_style: StrokeStyle::default(),
             head_size: 15.0,
             style: ShapeStyle::default(),
         }
@@ -47,6 +51,7 @@ impl Arrow {
         end: Point,
         intermediate_points: Vec<Point>,
         path_style: PathStyle,
+        stroke_style: StrokeStyle,
         head_size: f64,
         style: ShapeStyle,
     ) -> Self {
@@ -56,6 +61,7 @@ impl Arrow {
             end,
             intermediate_points,
             path_style,
+            stroke_style,
             head_size,
             style,
         }
@@ -76,6 +82,7 @@ impl Arrow {
             end,
             intermediate_points,
             path_style,
+            stroke_style: StrokeStyle::default(),
             head_size: 15.0,
             style: ShapeStyle::default(),
         }
