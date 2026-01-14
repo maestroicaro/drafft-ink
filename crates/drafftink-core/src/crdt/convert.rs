@@ -601,7 +601,7 @@ fn i64_to_stroke_style(v: i64) -> StrokeStyle {
 fn font_family_to_i64(f: FontFamily) -> i64 {
     match f {
         FontFamily::GelPen => 0,
-        FontFamily::VanillaExtract => 1,
+        FontFamily::NotoSans => 1,
         FontFamily::GelPenSerif => 2,
     }
 }
@@ -609,7 +609,7 @@ fn font_family_to_i64(f: FontFamily) -> i64 {
 fn i64_to_font_family(v: i64) -> FontFamily {
     match v {
         0 => FontFamily::GelPen,
-        1 => FontFamily::VanillaExtract,
+        1 => FontFamily::NotoSans,
         _ => FontFamily::GelPenSerif,
     }
 }

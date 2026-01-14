@@ -26,14 +26,16 @@ pub struct PngRenderResult {
 static GELPEN_REGULAR: &[u8] = include_bytes!("../assets/GelPen.ttf");
 static GELPEN_LIGHT: &[u8] = include_bytes!("../assets/GelPenLight.ttf");
 static GELPEN_HEAVY: &[u8] = include_bytes!("../assets/GelPenHeavy.ttf");
-/// Embedded VanillaExtract font
-static VANILLA_EXTRACT: &[u8] = include_bytes!("../assets/VanillaExtract.ttf");
 /// Embedded GelPenSerif fonts for handwritten style
 static GELPEN_SERIF_LIGHT: &[u8] = include_bytes!("../assets/GelPenSerifLight.ttf");
 static GELPEN_SERIF_MEDIUM: &[u8] = include_bytes!("../assets/GelPenSerifMedium.ttf");
 static GELPEN_SERIF_HEAVY: &[u8] = include_bytes!("../assets/GelPenSerifHeavy.ttf");
 /// Embedded XITS Math font for LaTeX rendering
 static XITS_MATH: &[u8] = include_bytes!("../assets/rex-xits.otf");
+/// Embedded Noto Sans for UI elements
+static NOTO_SANS: &[u8] = include_bytes!("../assets/NotoSans-Regular.ttf");
+static NOTO_SANS_BOLD: &[u8] = include_bytes!("../assets/NotoSans-Bold.ttf");
+static NOTO_SANS_ITALIC: &[u8] = include_bytes!("../assets/NotoSans-Italic.ttf");
 
 /// Vello-based renderer for GPU-accelerated 2D graphics.
 pub struct VelloRenderer {
@@ -298,10 +300,6 @@ impl VelloRenderer {
             None,
         );
         font_cx.collection.register_fonts(
-            vello::peniko::Blob::new(std::sync::Arc::new(VANILLA_EXTRACT)),
-            None,
-        );
-        font_cx.collection.register_fonts(
             vello::peniko::Blob::new(std::sync::Arc::new(GELPEN_SERIF_LIGHT)),
             None,
         );
@@ -311,6 +309,18 @@ impl VelloRenderer {
         );
         font_cx.collection.register_fonts(
             vello::peniko::Blob::new(std::sync::Arc::new(GELPEN_SERIF_HEAVY)),
+            None,
+        );
+        font_cx.collection.register_fonts(
+            vello::peniko::Blob::new(std::sync::Arc::new(NOTO_SANS)),
+            None,
+        );
+        font_cx.collection.register_fonts(
+            vello::peniko::Blob::new(std::sync::Arc::new(NOTO_SANS_BOLD)),
+            None,
+        );
+        font_cx.collection.register_fonts(
+            vello::peniko::Blob::new(std::sync::Arc::new(NOTO_SANS_ITALIC)),
             None,
         );
 
@@ -712,19 +722,21 @@ impl VelloRenderer {
         //   - Roboto-Regular.ttf has weight 400 (NORMAL)
         //   - Roboto-Bold.ttf has weight 700 (BOLD)
         // For GelPenSerif: each weight is a separate font family
-        let (font_name, parley_weight) = match (&text.font_family, &text.font_weight) {
-            (FontFamily::GelPen, FontWeight::Light) => ("GelPenLight", parley::FontWeight::NORMAL),
-            (FontFamily::GelPen, FontWeight::Regular) => ("GelPen", parley::FontWeight::NORMAL),
-            (FontFamily::GelPen, FontWeight::Heavy) => ("GelPenHeavy", parley::FontWeight::NORMAL),
-            (FontFamily::VanillaExtract, _) => ("Vanilla Extract", parley::FontWeight::NORMAL),
+        let (font_name, parley_weight, is_italic) = match (&text.font_family, &text.font_weight) {
+            (FontFamily::GelPen, FontWeight::Light) => ("GelPenLight", parley::FontWeight::NORMAL, false),
+            (FontFamily::GelPen, FontWeight::Regular) => ("GelPen", parley::FontWeight::NORMAL, false),
+            (FontFamily::GelPen, FontWeight::Heavy) => ("GelPenHeavy", parley::FontWeight::NORMAL, false),
+            (FontFamily::NotoSans, FontWeight::Light) => ("Noto Sans", parley::FontWeight::NORMAL, true),
+            (FontFamily::NotoSans, FontWeight::Regular) => ("Noto Sans", parley::FontWeight::NORMAL, false),
+            (FontFamily::NotoSans, FontWeight::Heavy) => ("Noto Sans", parley::FontWeight::BOLD, false),
             (FontFamily::GelPenSerif, FontWeight::Light) => {
-                ("GelPenSerifLight", parley::FontWeight::NORMAL)
+                ("GelPenSerifLight", parley::FontWeight::NORMAL, false)
             }
             (FontFamily::GelPenSerif, FontWeight::Regular) => {
-                ("GelPenSerif", parley::FontWeight::NORMAL)
+                ("GelPenSerif", parley::FontWeight::NORMAL, false)
             }
             (FontFamily::GelPenSerif, FontWeight::Heavy) => {
-                ("GelPenSerifHeavy", parley::FontWeight::NORMAL)
+                ("GelPenSerifHeavy", parley::FontWeight::NORMAL, false)
             }
         };
 
@@ -735,6 +747,9 @@ impl VelloRenderer {
         builder.push_default(StyleProperty::FontSize(font_size));
         builder.push_default(StyleProperty::Brush(brush.clone()));
         builder.push_default(StyleProperty::FontWeight(parley_weight));
+        if is_italic {
+            builder.push_default(StyleProperty::FontStyle(parley::FontStyle::Italic));
+        }
         builder.push_default(StyleProperty::FontStack(parley::FontStack::Single(
             parley::FontFamily::Named(font_name.into()),
         )));
@@ -1041,25 +1056,33 @@ impl VelloRenderer {
 
         // Determine font name and parley weight based on family and weight
         // Use same logic as render_text - all Roboto variants use "Roboto" family with weight
-        let (font_name, parley_weight) = match (&text.font_family, &text.font_weight) {
+        let (font_name, parley_weight, is_italic) = match (&text.font_family, &text.font_weight) {
             (ShapeFontFamily::GelPen, FontWeight::Light) => {
-                ("GelPenLight", parley::FontWeight::NORMAL)
+                ("GelPenLight", parley::FontWeight::NORMAL, false)
             }
             (ShapeFontFamily::GelPen, FontWeight::Regular) => {
-                ("GelPen", parley::FontWeight::NORMAL)
+                ("GelPen", parley::FontWeight::NORMAL, false)
             }
             (ShapeFontFamily::GelPen, FontWeight::Heavy) => {
-                ("GelPenHeavy", parley::FontWeight::NORMAL)
+                ("GelPenHeavy", parley::FontWeight::NORMAL, false)
             }
-            (ShapeFontFamily::VanillaExtract, _) => ("Vanilla Extract", parley::FontWeight::NORMAL),
+            (ShapeFontFamily::NotoSans, FontWeight::Light) => {
+                ("Noto Sans", parley::FontWeight::NORMAL, true)
+            }
+            (ShapeFontFamily::NotoSans, FontWeight::Regular) => {
+                ("Noto Sans", parley::FontWeight::NORMAL, false)
+            }
+            (ShapeFontFamily::NotoSans, FontWeight::Heavy) => {
+                ("Noto Sans", parley::FontWeight::BOLD, false)
+            }
             (ShapeFontFamily::GelPenSerif, FontWeight::Light) => {
-                ("GelPenSerifLight", parley::FontWeight::NORMAL)
+                ("GelPenSerifLight", parley::FontWeight::NORMAL, false)
             }
             (ShapeFontFamily::GelPenSerif, FontWeight::Regular) => {
-                ("GelPenSerif", parley::FontWeight::NORMAL)
+                ("GelPenSerif", parley::FontWeight::NORMAL, false)
             }
             (ShapeFontFamily::GelPenSerif, FontWeight::Heavy) => {
-                ("GelPenSerifHeavy", parley::FontWeight::NORMAL)
+                ("GelPenSerifHeavy", parley::FontWeight::NORMAL, false)
             }
         };
 
@@ -1075,6 +1098,9 @@ impl VelloRenderer {
                 FontFamily::Named(font_name.into()),
             )));
             styles.insert(StyleProperty::FontWeight(parley_weight));
+            if is_italic {
+                styles.insert(StyleProperty::FontStyle(parley::FontStyle::Italic));
+            }
         }
 
         // Get the current text content from the editor
@@ -1568,22 +1594,26 @@ impl VelloRenderer {
     fn render_badge(&mut self, text: &str, center: Point, bg_color: Color, transform: Affine) {
         use parley::{PositionedLayoutItem, StyleProperty};
 
-        let font_size = (10.0 / self.zoom) as f32;
+        let font_size = 11.0_f32;
         let padding = 3.0 / self.zoom;
 
-        // Build text layout
+        // Build text layout using same font as text tool
         let mut builder =
             self.layout_cx
                 .ranged_builder(&mut self.font_cx, text, 1.0, false);
         builder.push_default(StyleProperty::FontSize(font_size));
         builder.push_default(StyleProperty::Brush(Brush::Solid(Color::WHITE)));
+        builder.push_default(StyleProperty::FontStack(parley::FontStack::Single(
+            parley::FontFamily::Named("Noto Sans".into()),
+        )));
         let mut layout = builder.build(text);
         layout.break_all_lines(None);
 
-        let text_width = layout.width() as f64;
-        let text_height = layout.height() as f64;
+        // Text dimensions in screen pixels, convert to world coords
+        let text_width = layout.width() as f64 / self.zoom;
+        let text_height = layout.height() as f64 / self.zoom;
 
-        // Background rect
+        // Background rect in world coords
         let rect = Rect::new(
             center.x - text_width / 2.0 - padding,
             center.y - text_height / 2.0 - padding,
@@ -1592,10 +1622,10 @@ impl VelloRenderer {
         );
         self.scene.fill(Fill::NonZero, transform, bg_color, None, &rect);
 
-        // Render text
+        // Render text - scale down by zoom to match world coords
         let text_x = center.x - text_width / 2.0;
         let text_y = center.y - text_height / 2.0;
-        let text_transform = transform * Affine::translate((text_x, text_y));
+        let text_transform = transform * Affine::translate((text_x, text_y)) * Affine::scale(1.0 / self.zoom);
 
         for line in layout.lines() {
             for item in line.items() {
@@ -1623,7 +1653,8 @@ impl VelloRenderer {
                         .hint(true)
                         .transform(text_transform)
                         .font_size(font_size)
-                        .draw(Fill::NonZero, glyphs.iter().copied());
+                        .normalized_coords(run.normalized_coords())
+                        .draw(Fill::NonZero, glyphs.into_iter());
                 }
             }
         }

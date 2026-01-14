@@ -2501,7 +2501,7 @@ impl ApplicationHandler for App {
                                 use drafftink_core::shapes::{FontFamily, Shape};
                                 let family = match family_idx {
                                     0 => FontFamily::GelPen,
-                                    1 => FontFamily::VanillaExtract,
+                                    1 => FontFamily::NotoSans,
                                     _ => FontFamily::GelPenSerif,
                                 };
                                 for &shape_id in &state.canvas.selection.clone() {

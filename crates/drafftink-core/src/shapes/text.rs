@@ -12,8 +12,8 @@ pub enum FontFamily {
     /// GelPen hand-drawn style font (default).
     #[default]
     GelPen,
-    /// Vanilla Extract handwritten font.
-    VanillaExtract,
+    /// Noto Sans clean sans-serif font.
+    NotoSans,
     /// GelPen Serif handwritten font.
     GelPenSerif,
 }
@@ -23,7 +23,7 @@ impl FontFamily {
     pub fn name(&self) -> &'static str {
         match self {
             FontFamily::GelPen => "GelPen",
-            FontFamily::VanillaExtract => "Vanilla Extract",
+            FontFamily::NotoSans => "Noto Sans",
             FontFamily::GelPenSerif => "GelPen Serif",
         }
     }
@@ -32,7 +32,7 @@ impl FontFamily {
     pub fn display_name(&self) -> &'static str {
         match self {
             FontFamily::GelPen => "GelPen",
-            FontFamily::VanillaExtract => "Vanilla",
+            FontFamily::NotoSans => "Noto",
             FontFamily::GelPenSerif => "GelPen Serif",
         }
     }
@@ -41,7 +41,7 @@ impl FontFamily {
     pub fn all() -> &'static [FontFamily] {
         &[
             FontFamily::GelPen,
-            FontFamily::VanillaExtract,
+            FontFamily::NotoSans,
             FontFamily::GelPenSerif,
         ]
     }
@@ -289,8 +289,10 @@ impl Text {
             (FontFamily::GelPen, FontWeight::Light) => 0.50,
             (FontFamily::GelPen, FontWeight::Regular) => 0.55,
             (FontFamily::GelPen, FontWeight::Heavy) => 0.60,
-            // Vanilla Extract is a handwritten font
-            (FontFamily::VanillaExtract, _) => 0.50,
+            // Noto Sans is a clean sans-serif font
+            (FontFamily::NotoSans, FontWeight::Light) => 0.50,
+            (FontFamily::NotoSans, FontWeight::Regular) => 0.52,
+            (FontFamily::NotoSans, FontWeight::Heavy) => 0.55,
             // GelPen Serif is a handwritten font with wider characters
             (FontFamily::GelPenSerif, FontWeight::Light) => 0.55,
             (FontFamily::GelPenSerif, FontWeight::Regular) => 0.58,
