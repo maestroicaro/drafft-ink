@@ -54,6 +54,9 @@ pub struct VelloRenderer {
     /// Image cache to avoid re-decoding images every frame.
     /// Key is the shape ID (as string), value is the decoded peniko ImageData.
     image_cache: std::collections::HashMap<String, peniko::ImageData>,
+    /// Shape path cache for hand-drawn effects.
+    /// Key: (shape_id, seed, stroke_index, roughness_bits, zoom_bucket)
+    shape_cache: std::collections::HashMap<(String, u32, u32, u64, i32), BezPath>,
 }
 
 impl Default for VelloRenderer {
@@ -337,6 +340,7 @@ impl VelloRenderer {
             layout_cx: LayoutContext::new(),
             zoom: 1.0,
             image_cache: std::collections::HashMap::new(),
+            shape_cache: std::collections::HashMap::new(),
         }
     }
 
@@ -480,15 +484,50 @@ impl VelloRenderer {
         (std::mem::take(&mut self.scene), Some(scaled_bounds))
     }
 
-    /// Render a shape path with the given style.
-    fn render_path(&mut self, path: &BezPath, style: &ShapeStyle, transform: Affine) {
+    /// Get or compute a cached hand-drawn path.
+    fn get_cached_hand_drawn(
+        &mut self,
+        shape_id: &str,
+        path: &BezPath,
+        roughness: f64,
+        seed: u32,
+        stroke_index: u32,
+    ) -> BezPath {
+        // Quantize zoom to reduce cache misses (bucket by 0.25 increments)
+        let zoom_bucket = (self.zoom * 4.0) as i32;
+        let roughness_bits = roughness.to_bits();
+        let key = (
+            shape_id.to_string(),
+            seed,
+            stroke_index,
+            roughness_bits,
+            zoom_bucket,
+        );
+
+        if let Some(cached) = self.shape_cache.get(&key) {
+            return cached.clone();
+        }
+
+        let result = apply_hand_drawn_effect(path, roughness, self.zoom, seed, stroke_index);
+        self.shape_cache.insert(key, result.clone());
+        result
+    }
+
+    /// Render a shape path with the given style (with caching).
+    fn render_path_cached(
+        &mut self,
+        shape_id: &str,
+        path: &BezPath,
+        style: &ShapeStyle,
+        transform: Affine,
+    ) {
         let roughness = style.sloppiness.roughness();
         let seed = style.seed;
 
         // Fill if present
         if let Some(fill_color) = style.fill_with_opacity() {
             let fill_path = if roughness > 0.0 {
-                apply_hand_drawn_effect(path, roughness * 0.3, self.zoom, seed, 0)
+                self.get_cached_hand_drawn(shape_id, path, roughness * 0.3, seed, 0)
             } else {
                 path.clone()
             };
@@ -529,7 +568,7 @@ impl VelloRenderer {
             let stroke = Stroke::new(style.stroke_width);
 
             // First stroke
-            let path1 = apply_hand_drawn_effect(path, roughness, self.zoom, seed, 0);
+            let path1 = self.get_cached_hand_drawn(shape_id, path, roughness, seed, 0);
             self.scene.stroke(
                 &stroke,
                 transform,
@@ -538,8 +577,8 @@ impl VelloRenderer {
                 &path1,
             );
 
-            // Second stroke with different seed - this creates the "sketchy" double-line effect
-            let path2 = apply_hand_drawn_effect(path, roughness, self.zoom, seed, 1);
+            // Second stroke with different seed
+            let path2 = self.get_cached_hand_drawn(shape_id, path, roughness, seed, 1);
             self.scene.stroke(
                 &stroke,
                 transform,
@@ -2311,7 +2350,12 @@ impl ShapeRenderer for VelloRenderer {
             }
             _ => {
                 let path = shape.to_path();
-                self.render_path(&path, shape.style(), shape_transform);
+                self.render_path_cached(
+                    &shape.id().to_string(),
+                    &path,
+                    shape.style(),
+                    shape_transform,
+                );
             }
         }
 
