@@ -1453,6 +1453,9 @@ struct AppState {
     last_autosave: web_time::Instant,
     #[cfg(target_arch = "wasm32")]
     last_doc_version: u64,
+
+    /// Flag to request a redraw on next frame
+    needs_redraw: bool,
 }
 
 /// Main application struct.
@@ -1578,6 +1581,7 @@ impl App {
             last_autosave: web_time::Instant::now(),
             #[cfg(target_arch = "wasm32")]
             last_doc_version: 0,
+            needs_redraw: true,
         });
 
         self.pending_window = None;
@@ -1902,6 +1906,7 @@ impl ApplicationHandler for App {
                     render_cx.resize_surface(&mut state.surface, size.width, size.height);
                 }
 
+                state.needs_redraw = true;
                 state.window.request_redraw();
             }
 
@@ -1913,6 +1918,7 @@ impl ApplicationHandler for App {
                 if let Some(doc) = file_ops::take_pending_document() {
                     state.canvas.document = doc;
                     state.canvas.clear_selection();
+                    state.needs_redraw = true;
                 }
 
                 // Check for pending document list (WASM)
@@ -1932,6 +1938,7 @@ impl ApplicationHandler for App {
                     if state.collab.is_in_room() {
                         let _ = state.collab.crdt_mut().add_shape(&image_shape);
                     }
+                    state.needs_redraw = true;
                 }
 
                 // Check for pending dropped images (WASM)
@@ -1945,6 +1952,7 @@ impl ApplicationHandler for App {
                     if state.collab.is_in_room() {
                         let _ = state.collab.crdt_mut().add_shape(&image_shape);
                     }
+                    state.needs_redraw = true;
                 }
 
                 // Check for pending dropped document (PNG with embedded scene)
@@ -1957,6 +1965,7 @@ impl ApplicationHandler for App {
                             state.canvas.document = doc;
                             state.canvas.clear_selection();
                             state.canvas.camera.reset();
+                            state.needs_redraw = true;
                         }
                         Err(e) => log::error!("Failed to parse embedded document: {}", e),
                     }
@@ -2060,6 +2069,7 @@ impl ApplicationHandler for App {
                                 log::debug!("Sync from {}: {} bytes", from, data.len());
                                 if state.collab.import_updates(&data) {
                                     state.collab.sync_from_crdt(&mut state.canvas.document);
+                                    state.needs_redraw = true;
                                 }
                             }
                             SyncEvent::AwarenessReceived {
@@ -2191,8 +2201,10 @@ impl ApplicationHandler for App {
                 // Run egui and get any actions
                 let egui_input = state.egui_state.take_egui_input(&state.window);
                 let mut deferred_action: Option<UiAction> = None;
+                let mut ui_action_taken = false;
                 let egui_output = state.egui_ctx.run(egui_input, |ctx| {
                     if let Some(action) = render_ui(ctx, &mut state.ui_state, &selected_props) {
+                        ui_action_taken = true;
                         match action.clone() {
                             UiAction::SetTool(tool) => {
                                 state.canvas.set_tool(tool);
@@ -3649,7 +3661,12 @@ impl ApplicationHandler for App {
                     state.egui_renderer.free_texture(id);
                 }
                 surface_texture.present();
-                state.window.request_redraw();
+
+                // Request redraw if needed
+                if state.needs_redraw || ui_action_taken || state.egui_ctx.has_requested_repaint() {
+                    state.needs_redraw = false;
+                    state.window.request_redraw();
+                }
             }
 
             WindowEvent::CursorMoved { position, .. } => {
@@ -3658,6 +3675,8 @@ impl ApplicationHandler for App {
                 // Skip canvas processing if egui wants the pointer
                 if egui_wants_input {
                     state.window.set_cursor(CursorIcon::Default);
+                    state.needs_redraw = true;
+                    state.window.request_redraw();
                     return;
                 }
 
@@ -3797,6 +3816,9 @@ impl ApplicationHandler for App {
                     let delta = state.input.cursor_diff();
                     state.canvas.camera.pan(delta);
                 }
+
+                state.needs_redraw = true;
+                state.window.request_redraw();
             }
 
             WindowEvent::MouseInput {
@@ -3806,6 +3828,8 @@ impl ApplicationHandler for App {
             } => {
                 // Skip canvas processing if egui wants the pointer
                 if egui_wants_input {
+                    state.needs_redraw = true;
+                    state.window.request_redraw();
                     return;
                 }
 
@@ -3977,6 +4001,8 @@ impl ApplicationHandler for App {
                         }
                     }
                 }
+                state.needs_redraw = true;
+                state.window.request_redraw();
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
@@ -4002,6 +4028,8 @@ impl ApplicationHandler for App {
                     // Normal scroll/trackpad = pan
                     state.canvas.camera.pan(scroll);
                 }
+                state.needs_redraw = true;
+                state.window.request_redraw();
             }
 
             WindowEvent::Touch(touch) => {
@@ -4079,12 +4107,15 @@ impl ApplicationHandler for App {
                         }
                     }
                 }
+                state.needs_redraw = true;
                 state.window.request_redraw();
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
                 // Skip canvas processing if egui wants keyboard
                 if egui_wants_input {
+                    state.needs_redraw = true;
+                    state.window.request_redraw();
                     return;
                 }
 
@@ -4735,6 +4766,8 @@ impl ApplicationHandler for App {
                         // Input state is handled by WinitInputHelper
                     }
                 }
+                state.needs_redraw = true;
+                state.window.request_redraw();
             }
 
             WindowEvent::ModifiersChanged(_) => {
@@ -4758,6 +4791,7 @@ impl ApplicationHandler for App {
                                             state.canvas.document = doc;
                                             state.canvas.clear_selection();
                                             state.canvas.camera.reset();
+                                            state.needs_redraw = true;
                                             state.window.request_redraw();
                                             return;
                                         }
@@ -4820,6 +4854,7 @@ impl ApplicationHandler for App {
                                     width,
                                     height
                                 );
+                                state.needs_redraw = true;
                                 state.window.request_redraw();
                             } else {
                                 log::error!("Failed to decode dropped image: {:?}", path);
