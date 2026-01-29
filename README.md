@@ -34,7 +34,7 @@ Cross-platform (Linux, Windows, macOS, browser, mobile). Real-time collaboration
 ### Desktop
 
 ```bash
-git clone https://github.com/drafft-ink/drafft-ink.git
+git clone https://github.com/PatWie/drafft-ink.git
 cd drafft-ink
 cargo run --release
 ```
