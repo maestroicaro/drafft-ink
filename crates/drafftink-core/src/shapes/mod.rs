@@ -337,6 +337,17 @@ impl Shape {
         }
     }
 
+    /// Return key snap points for smart guide alignment.
+    /// For lines/arrows, returns all segment endpoints.
+    /// For other shapes, returns an empty vec (bounds suffice).
+    pub fn snap_points(&self) -> Vec<Point> {
+        match self {
+            Shape::Line(s) => s.all_points(),
+            Shape::Arrow(s) => s.all_points(),
+            _ => Vec::new(),
+        }
+    }
+
     pub fn hit_test(&self, point: Point, tolerance: f64) -> bool {
         match self {
             Shape::Rectangle(s) => s.hit_test(point, tolerance),

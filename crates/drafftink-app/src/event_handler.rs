@@ -9,7 +9,8 @@ use drafftink_core::selection::{
 };
 use drafftink_core::shapes::{Freehand, Math, Shape, ShapeId, ShapeStyle, ShapeTrait, Text};
 use drafftink_core::snap::{
-    AngleSnapResult, GRID_SIZE, SMART_GUIDE_THRESHOLD, SmartGuide, SnapResult, detect_smart_guides,
+    AngleSnapResult, ENDPOINT_SNAP_RADIUS, GRID_SIZE, MULTI_MOVE_SNAP_RADIUS,
+    SMART_GUIDE_THRESHOLD, SmartGuide, SnapResult, detect_smart_guides,
     detect_smart_guides_for_point, snap_line_endpoint_isometric, snap_ray_to_smart_guides,
     snap_to_grid,
 };
@@ -28,15 +29,30 @@ fn collect_snap_candidates(
     snap_zone: Option<Rect>,
 ) -> Vec<Rect> {
     let viewport = canvas.visible_world_bounds();
-    canvas
+    let mut rects: Vec<Rect> = Vec::new();
+    for shape in canvas
         .document
         .shapes_ordered()
         .filter(|s| !exclude_ids.contains(&s.id()))
-        .filter(|s| !viewport.intersect(s.bounds()).is_zero_area()) // Viewport culling
-        .filter(|s| snap_zone.map_or(true, |z| !z.intersect(s.bounds()).is_zero_area())) // Proximity filter
-        .take(MAX_SNAP_CANDIDATES) // Hard limit
-        .map(|s| s.bounds())
-        .collect()
+        .filter(|s| {
+            !viewport
+                .intersect(s.bounds().inflate(1.0, 1.0))
+                .is_zero_area()
+        })
+        .filter(|s| {
+            snap_zone.map_or(true, |z| {
+                !z.intersect(s.bounds().inflate(1.0, 1.0)).is_zero_area()
+            })
+        })
+        .take(MAX_SNAP_CANDIDATES)
+    {
+        rects.push(shape.bounds());
+        // Add individual segment endpoints for lines/arrows
+        for pt in shape.snap_points() {
+            rects.push(Rect::new(pt.x, pt.y, pt.x, pt.y));
+        }
+    }
+    rects
 }
 
 /// Get the other endpoint of a line/arrow given the handle being manipulated.
@@ -907,7 +923,7 @@ impl EventHandler {
                         // Create snap zone around the target point
                         let snap_zone = Rect::from_center_size(
                             angle_result.point,
-                            Size::new(SMART_GUIDE_THRESHOLD * 4.0, SMART_GUIDE_THRESHOLD * 4.0),
+                            Size::new(ENDPOINT_SNAP_RADIUS * 2.0, ENDPOINT_SNAP_RADIUS * 2.0),
                         );
                         let other_bounds =
                             collect_snap_candidates(canvas, &[manip.shape_id], Some(snap_zone));
@@ -956,7 +972,7 @@ impl EventHandler {
                     // Smart guides for line/arrow endpoints (no angle snap)
                     let snap_zone = Rect::from_center_size(
                         target_position,
-                        Size::new(SMART_GUIDE_THRESHOLD * 4.0, SMART_GUIDE_THRESHOLD * 4.0),
+                        Size::new(ENDPOINT_SNAP_RADIUS * 2.0, ENDPOINT_SNAP_RADIUS * 2.0),
                     );
                     let other_bounds =
                         collect_snap_candidates(canvas, &[manip.shape_id], Some(snap_zone));
@@ -1058,9 +1074,9 @@ impl EventHandler {
                 if has_meaningful_movement {
                     // Smart guides
                     if smart_snap_enabled {
-                        // Expand target bounds by threshold for proximity filtering
-                        let snap_zone = target_bounds
-                            .inflate(SMART_GUIDE_THRESHOLD * 2.0, SMART_GUIDE_THRESHOLD * 2.0);
+                        // Expand target bounds for proximity filtering
+                        let snap_zone =
+                            target_bounds.inflate(MULTI_MOVE_SNAP_RADIUS, MULTI_MOVE_SNAP_RADIUS);
                         let other_bounds =
                             collect_snap_candidates(canvas, &exclude_ids, Some(snap_zone));
 

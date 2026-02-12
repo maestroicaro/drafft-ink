@@ -8,6 +8,15 @@ pub const GRID_SIZE: f64 = 20.0;
 /// Threshold for smart guide detection (in world units).
 pub const SMART_GUIDE_THRESHOLD: f64 = 8.0;
 
+/// Snap zone radius for equal spacing detection (40 grid units).
+pub const EQUAL_SPACING_SNAP_RADIUS: f64 = GRID_SIZE * 40.0;
+
+/// Snap zone radius for line/arrow endpoint snapping (40 grid units).
+pub const ENDPOINT_SNAP_RADIUS: f64 = GRID_SIZE * 40.0;
+
+/// Snap zone radius for multi-shape move snapping (20 grid units).
+pub const MULTI_MOVE_SNAP_RADIUS: f64 = GRID_SIZE * 20.0;
+
 /// A smart guide line for alignment visualization.
 #[derive(Debug, Clone)]
 pub struct SmartGuide {
@@ -55,6 +64,9 @@ pub fn detect_smart_guides(
     other_bounds: &[Rect],
     threshold: f64,
 ) -> SmartGuideResult {
+    // Separate real shape bounds (non-zero area) from snap points for equal spacing
+    let shape_bounds: Vec<&Rect> = other_bounds.iter().filter(|r| !r.is_zero_area()).collect();
+
     let mut result = SmartGuideResult {
         point: Point::new(dragged_bounds.x0, dragged_bounds.y0),
         guides: Vec::new(),
@@ -100,14 +112,14 @@ pub fn detect_smart_guides(
         }
     }
 
-    // Equal spacing detection - only check pairs near the dragged bounds
+    // Equal spacing detection - only check real shape bounds (not snap points)
     // Skip if too many candidates (O(n²) becomes expensive)
     let max_spacing_candidates = 50;
-    if other_bounds.len() <= max_spacing_candidates {
-        for i in 0..other_bounds.len() {
-            for j in (i + 1)..other_bounds.len() {
-                let a = &other_bounds[i];
-                let b = &other_bounds[j];
+    if shape_bounds.len() <= max_spacing_candidates {
+        for i in 0..shape_bounds.len() {
+            for j in (i + 1)..shape_bounds.len() {
+                let a = shape_bounds[i];
+                let b = shape_bounds[j];
 
                 // Horizontal spacing: check both orderings (a left of b, b left of a)
                 for (left, right) in [(a, b), (b, a)] {
@@ -117,7 +129,7 @@ pub fn detect_smart_guides(
                     let gap = right.x0 - left.x1;
 
                     // Skip if gap is too large to be useful
-                    if gap > threshold * 20.0 {
+                    if gap > EQUAL_SPACING_SNAP_RADIUS {
                         continue;
                     }
 
@@ -207,7 +219,7 @@ pub fn detect_smart_guides(
                     let gap = bottom.y0 - top.y1;
 
                     // Skip if gap is too large
-                    if gap > threshold * 20.0 {
+                    if gap > EQUAL_SPACING_SNAP_RADIUS {
                         continue;
                     }
 

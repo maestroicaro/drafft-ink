@@ -23,7 +23,8 @@ pub use crdt::CrdtDocument;
 pub use input::InputState;
 pub use selection::{ManipulationState, MultiMoveState};
 pub use snap::{
-    GRID_SIZE, SMART_GUIDE_THRESHOLD, SmartGuide, SmartGuideKind, SmartGuideResult, SnapResult,
+    ENDPOINT_SNAP_RADIUS, EQUAL_SPACING_SNAP_RADIUS, GRID_SIZE, MULTI_MOVE_SNAP_RADIUS,
+    SMART_GUIDE_THRESHOLD, SmartGuide, SmartGuideKind, SmartGuideResult, SnapResult,
     detect_smart_guides, detect_smart_guides_for_point, snap_point, snap_ray_to_smart_guides,
     snap_to_grid,
 };
