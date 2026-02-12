@@ -813,19 +813,19 @@ pub mod file_ops {
 
     // Thread-local storage for pending pasted Excalidraw shapes
     thread_local! {
-        static PENDING_EXCALIDRAW_SHAPES: RefCell<Option<Vec<drafftink_core::shapes::Shape>>> = const { RefCell::new(None) };
+        static PENDING_EXCALIDRAW_SHAPES: RefCell<Option<(Vec<drafftink_core::shapes::Shape>, kurbo::Point)>> = const { RefCell::new(None) };
     }
 
     /// Try to paste shapes from clipboard text (Excalidraw format).
     /// The result will be available via `take_pending_excalidraw_shapes()`.
-    pub fn paste_shapes_from_clipboard_async() {
-        wasm_bindgen_futures::spawn_local(async {
+    pub fn paste_shapes_from_clipboard_async(cursor_world: kurbo::Point) {
+        wasm_bindgen_futures::spawn_local(async move {
             if let Some(text) = read_clipboard_text_async().await {
                 if let Some(shapes) =
                     drafftink_core::canvas::CanvasDocument::shapes_from_excalidraw_clipboard(&text)
                 {
                     PENDING_EXCALIDRAW_SHAPES.with(|cell| {
-                        *cell.borrow_mut() = Some(shapes);
+                        *cell.borrow_mut() = Some((shapes, cursor_world));
                     });
                 }
             }
@@ -833,7 +833,8 @@ pub mod file_ops {
     }
 
     /// Take pending Excalidraw shapes from clipboard paste.
-    pub fn take_pending_excalidraw_shapes() -> Option<Vec<drafftink_core::shapes::Shape>> {
+    pub fn take_pending_excalidraw_shapes()
+    -> Option<(Vec<drafftink_core::shapes::Shape>, kurbo::Point)> {
         PENDING_EXCALIDRAW_SHAPES.with(|cell| cell.borrow_mut().take())
     }
 
@@ -1969,10 +1970,28 @@ impl ApplicationHandler for App {
 
                 // Check for pending Excalidraw shapes from clipboard (WASM)
                 #[cfg(target_arch = "wasm32")]
-                if let Some(shapes) = file_ops::take_pending_excalidraw_shapes() {
+                if let Some((shapes, cursor_world)) = file_ops::take_pending_excalidraw_shapes() {
+                    // Center pasted shapes at mouse cursor
+                    let group_bounds = shapes.iter().fold(
+                        kurbo::Rect::new(f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+                        |acc, s| {
+                            let b = s.bounds();
+                            kurbo::Rect::new(
+                                acc.x0.min(b.x0),
+                                acc.y0.min(b.y0),
+                                acc.x1.max(b.x1),
+                                acc.y1.max(b.y1),
+                            )
+                        },
+                    );
+                    let offset = Vec2::new(
+                        cursor_world.x - (group_bounds.x0 + group_bounds.x1) / 2.0,
+                        cursor_world.y - (group_bounds.y0 + group_bounds.y1) / 2.0,
+                    );
                     state.canvas.document.push_undo();
                     state.canvas.clear_selection();
-                    for shape in shapes {
+                    for mut shape in shapes {
+                        shape.transform(kurbo::Affine::translate(offset));
                         let new_id = shape.id();
                         state.canvas.document.add_shape(shape.clone());
                         state.canvas.add_to_selection(new_id);
@@ -4711,9 +4730,25 @@ impl ApplicationHandler for App {
                                         if let Ok(mut cb) = arboard::Clipboard::new() {
                                             if let Ok(text) = cb.get_text() {
                                                 if let Some(shapes) = drafftink_core::canvas::CanvasDocument::shapes_from_excalidraw_clipboard(&text) {
+                                                    // Center pasted shapes at mouse cursor
+                                                    let cursor_world = state.canvas.camera.screen_to_world(
+                                                        state.input.mouse_position(),
+                                                    );
+                                                    let group_bounds = shapes.iter().fold(
+                                                        kurbo::Rect::new(f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+                                                        |acc, s| {
+                                                            let b = s.bounds();
+                                                            kurbo::Rect::new(acc.x0.min(b.x0), acc.y0.min(b.y0), acc.x1.max(b.x1), acc.y1.max(b.y1))
+                                                        },
+                                                    );
+                                                    let offset = kurbo::Vec2::new(
+                                                        cursor_world.x - (group_bounds.x0 + group_bounds.x1) / 2.0,
+                                                        cursor_world.y - (group_bounds.y0 + group_bounds.y1) / 2.0,
+                                                    );
                                                     state.canvas.document.push_undo();
                                                     state.canvas.clear_selection();
-                                                    for shape in shapes {
+                                                    for mut shape in shapes {
+                                                        shape.transform(kurbo::Affine::translate(offset));
                                                         let new_id = shape.id();
                                                         state.canvas.document.add_shape(shape.clone());
                                                         state.canvas.add_to_selection(new_id);
@@ -4750,7 +4785,11 @@ impl ApplicationHandler for App {
                                     // WASM: Try Excalidraw clipboard text first, then image
                                     #[cfg(target_arch = "wasm32")]
                                     if !pasted {
-                                        file_ops::paste_shapes_from_clipboard_async();
+                                        let cursor_world = state
+                                            .canvas
+                                            .camera
+                                            .screen_to_world(state.input.mouse_position());
+                                        file_ops::paste_shapes_from_clipboard_async(cursor_world);
                                         let vw = state.canvas.viewport_size.width;
                                         let vh = state.canvas.viewport_size.height;
                                         let cox = state.canvas.camera.offset.x;
