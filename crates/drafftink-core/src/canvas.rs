@@ -612,6 +612,16 @@ impl Canvas {
         self.viewport_size = kurbo::Size::new(width, height);
     }
 
+    /// Get the visible world bounds (viewport in world coordinates).
+    pub fn visible_world_bounds(&self) -> kurbo::Rect {
+        let top_left = self.camera.screen_to_world(kurbo::Point::ZERO);
+        let bottom_right = self.camera.screen_to_world(kurbo::Point::new(
+            self.viewport_size.width,
+            self.viewport_size.height,
+        ));
+        kurbo::Rect::new(top_left.x, top_left.y, bottom_right.x, bottom_right.y)
+    }
+
     /// Select a shape (clears previous selection).
     pub fn select(&mut self, id: ShapeId) {
         self.clear_selection();

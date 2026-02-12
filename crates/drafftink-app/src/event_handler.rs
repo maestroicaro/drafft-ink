@@ -14,7 +14,30 @@ use drafftink_core::snap::{
     snap_to_grid,
 };
 use drafftink_core::tools::ToolKind;
-use kurbo::{Point, Rect};
+use kurbo::{Point, Rect, Size};
+
+/// Maximum number of snap candidates (like Inkscape's limit of 200).
+const MAX_SNAP_CANDIDATES: usize = 200;
+
+/// Collect snap candidate bounds with viewport culling, proximity filtering, and limit.
+/// `exclude_ids` - shape IDs to exclude (e.g., the shape being dragged)
+/// `snap_zone` - expanded bounds around the dragged object for proximity filtering
+fn collect_snap_candidates(
+    canvas: &Canvas,
+    exclude_ids: &[ShapeId],
+    snap_zone: Option<Rect>,
+) -> Vec<Rect> {
+    let viewport = canvas.visible_world_bounds();
+    canvas
+        .document
+        .shapes_ordered()
+        .filter(|s| !exclude_ids.contains(&s.id()))
+        .filter(|s| !viewport.intersect(s.bounds()).is_zero_area()) // Viewport culling
+        .filter(|s| snap_zone.map_or(true, |z| !z.intersect(s.bounds()).is_zero_area())) // Proximity filter
+        .take(MAX_SNAP_CANDIDATES) // Hard limit
+        .map(|s| s.bounds())
+        .collect()
+}
 
 /// Get the other endpoint of a line/arrow given the handle being manipulated.
 /// Returns the start point if manipulating the end, and vice versa.
@@ -881,12 +904,13 @@ impl EventHandler {
 
                     // Then use smart guides for magnitude along the snapped angle ray
                     if smart_snap_enabled {
-                        let other_bounds: Vec<Rect> = canvas
-                            .document
-                            .shapes_ordered()
-                            .filter(|s| s.id() != manip.shape_id)
-                            .map(|s| s.bounds())
-                            .collect();
+                        // Create snap zone around the target point
+                        let snap_zone = Rect::from_center_size(
+                            angle_result.point,
+                            Size::new(SMART_GUIDE_THRESHOLD * 4.0, SMART_GUIDE_THRESHOLD * 4.0),
+                        );
+                        let other_bounds =
+                            collect_snap_candidates(canvas, &[manip.shape_id], Some(snap_zone));
 
                         let guide_result = snap_ray_to_smart_guides(
                             other_endpoint,
@@ -930,12 +954,12 @@ impl EventHandler {
                     }
                 } else if smart_snap_enabled {
                     // Smart guides for line/arrow endpoints (no angle snap)
-                    let other_bounds: Vec<Rect> = canvas
-                        .document
-                        .shapes_ordered()
-                        .filter(|s| s.id() != manip.shape_id)
-                        .map(|s| s.bounds())
-                        .collect();
+                    let snap_zone = Rect::from_center_size(
+                        target_position,
+                        Size::new(SMART_GUIDE_THRESHOLD * 4.0, SMART_GUIDE_THRESHOLD * 4.0),
+                    );
+                    let other_bounds =
+                        collect_snap_candidates(canvas, &[manip.shape_id], Some(snap_zone));
 
                     let guide_result = detect_smart_guides_for_point(
                         target_position,
@@ -1034,12 +1058,11 @@ impl EventHandler {
                 if has_meaningful_movement {
                     // Smart guides
                     if smart_snap_enabled {
-                        let other_bounds: Vec<Rect> = canvas
-                            .document
-                            .shapes_ordered()
-                            .filter(|s| !exclude_ids.contains(&s.id()))
-                            .map(|s| s.bounds())
-                            .collect();
+                        // Expand target bounds by threshold for proximity filtering
+                        let snap_zone = target_bounds
+                            .inflate(SMART_GUIDE_THRESHOLD * 2.0, SMART_GUIDE_THRESHOLD * 2.0);
+                        let other_bounds =
+                            collect_snap_candidates(canvas, &exclude_ids, Some(snap_zone));
 
                         let guide_result = detect_smart_guides(
                             target_bounds,

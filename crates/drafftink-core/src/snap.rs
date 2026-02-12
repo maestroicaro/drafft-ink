@@ -100,178 +100,193 @@ pub fn detect_smart_guides(
         }
     }
 
-    // Equal spacing detection
-    for i in 0..other_bounds.len() {
-        for j in 0..other_bounds.len() {
-            if i == j {
-                continue;
-            }
-            let a = &other_bounds[i];
-            let b = &other_bounds[j];
+    // Equal spacing detection - only check pairs near the dragged bounds
+    // Skip if too many candidates (O(n²) becomes expensive)
+    let max_spacing_candidates = 50;
+    if other_bounds.len() <= max_spacing_candidates {
+        for i in 0..other_bounds.len() {
+            for j in (i + 1)..other_bounds.len() {
+                let a = &other_bounds[i];
+                let b = &other_bounds[j];
 
-            // Horizontal: A is left of B
-            if a.x1 < b.x0 {
-                let gap_ab = b.x0 - a.x1;
+                // Horizontal spacing: check both orderings (a left of b, b left of a)
+                for (left, right) in [(a, b), (b, a)] {
+                    if left.x1 >= right.x0 {
+                        continue; // Not horizontally separated
+                    }
+                    let gap = right.x0 - left.x1;
 
-                // Case 1: dragged between A and B (equal gaps on both sides)
-                let target_between = a.x1 + (gap_ab - dragged_w) / 2.0;
-                let dist_between = (dragged_bounds.x0 - target_between).abs();
-                if dist_between < best_dist_x && gap_ab > dragged_w {
-                    best_dist_x = dist_between;
-                    best_dx = Some((target_between, target_between + dragged_w / 2.0, *a));
-                    result
-                        .guides
-                        .retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingH));
-                    let cy = dragged_cy;
-                    result.guides.push(SmartGuide {
-                        kind: SmartGuideKind::EqualSpacingH,
-                        position: cy,
-                        start: a.x1,
-                        end: target_between,
-                        snap_points: vec![],
-                    });
-                    result.guides.push(SmartGuide {
-                        kind: SmartGuideKind::EqualSpacingH,
-                        position: cy,
-                        start: target_between + dragged_w,
-                        end: b.x0,
-                        snap_points: vec![],
-                    });
+                    // Skip if gap is too large to be useful
+                    if gap > threshold * 20.0 {
+                        continue;
+                    }
+
+                    // Case 1: dragged between left and right
+                    if gap > dragged_w {
+                        let target = left.x1 + (gap - dragged_w) / 2.0;
+                        let dist = (dragged_bounds.x0 - target).abs();
+                        if dist < best_dist_x {
+                            best_dist_x = dist;
+                            best_dx = Some((target, target + dragged_w / 2.0, *left));
+                            result
+                                .guides
+                                .retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingH));
+                            result.guides.push(SmartGuide {
+                                kind: SmartGuideKind::EqualSpacingH,
+                                position: dragged_cy,
+                                start: left.x1,
+                                end: target,
+                                snap_points: vec![],
+                            });
+                            result.guides.push(SmartGuide {
+                                kind: SmartGuideKind::EqualSpacingH,
+                                position: dragged_cy,
+                                start: target + dragged_w,
+                                end: right.x0,
+                                snap_points: vec![],
+                            });
+                        }
+                    }
+
+                    // Case 2: dragged to the right of right, matching gap
+                    let target_right = right.x1 + gap;
+                    let dist_right = (dragged_bounds.x0 - target_right).abs();
+                    if dist_right < best_dist_x {
+                        best_dist_x = dist_right;
+                        best_dx = Some((target_right, target_right + dragged_w / 2.0, *right));
+                        result
+                            .guides
+                            .retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingH));
+                        result.guides.push(SmartGuide {
+                            kind: SmartGuideKind::EqualSpacingH,
+                            position: (left.y0 + left.y1) / 2.0,
+                            start: left.x1,
+                            end: right.x0,
+                            snap_points: vec![],
+                        });
+                        result.guides.push(SmartGuide {
+                            kind: SmartGuideKind::EqualSpacingH,
+                            position: dragged_cy,
+                            start: right.x1,
+                            end: target_right,
+                            snap_points: vec![],
+                        });
+                    }
+
+                    // Case 3: dragged to the left of left, matching gap
+                    let target_left = left.x0 - gap - dragged_w;
+                    let dist_left = (dragged_bounds.x0 - target_left).abs();
+                    if dist_left < best_dist_x {
+                        best_dist_x = dist_left;
+                        best_dx = Some((target_left, target_left + dragged_w / 2.0, *left));
+                        result
+                            .guides
+                            .retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingH));
+                        result.guides.push(SmartGuide {
+                            kind: SmartGuideKind::EqualSpacingH,
+                            position: dragged_cy,
+                            start: target_left + dragged_w,
+                            end: left.x0,
+                            snap_points: vec![],
+                        });
+                        result.guides.push(SmartGuide {
+                            kind: SmartGuideKind::EqualSpacingH,
+                            position: (right.y0 + right.y1) / 2.0,
+                            start: left.x1,
+                            end: right.x0,
+                            snap_points: vec![],
+                        });
+                    }
                 }
 
-                // Case 2: dragged to the right of B, matching gap A-B
-                let target_right = b.x1 + gap_ab;
-                let dist_right = (dragged_bounds.x0 - target_right).abs();
-                if dist_right < best_dist_x {
-                    best_dist_x = dist_right;
-                    best_dx = Some((target_right, target_right + dragged_w / 2.0, *b));
-                    result
-                        .guides
-                        .retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingH));
-                    let cy = dragged_cy;
-                    result.guides.push(SmartGuide {
-                        kind: SmartGuideKind::EqualSpacingH,
-                        position: (a.y0 + a.y1) / 2.0,
-                        start: a.x1,
-                        end: b.x0,
-                        snap_points: vec![],
-                    });
-                    result.guides.push(SmartGuide {
-                        kind: SmartGuideKind::EqualSpacingH,
-                        position: cy,
-                        start: b.x1,
-                        end: target_right,
-                        snap_points: vec![],
-                    });
-                }
+                // Vertical spacing: check both orderings (a above b, b above a)
+                for (top, bottom) in [(a, b), (b, a)] {
+                    if top.y1 >= bottom.y0 {
+                        continue; // Not vertically separated
+                    }
+                    let gap = bottom.y0 - top.y1;
 
-                // Case 3: dragged to the left of A, matching gap A-B
-                let target_left = a.x0 - gap_ab - dragged_w;
-                let dist_left = (dragged_bounds.x0 - target_left).abs();
-                if dist_left < best_dist_x {
-                    best_dist_x = dist_left;
-                    best_dx = Some((target_left, target_left + dragged_w / 2.0, *a));
-                    result
-                        .guides
-                        .retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingH));
-                    let cy = dragged_cy;
-                    result.guides.push(SmartGuide {
-                        kind: SmartGuideKind::EqualSpacingH,
-                        position: cy,
-                        start: target_left + dragged_w,
-                        end: a.x0,
-                        snap_points: vec![],
-                    });
-                    result.guides.push(SmartGuide {
-                        kind: SmartGuideKind::EqualSpacingH,
-                        position: (b.y0 + b.y1) / 2.0,
-                        start: a.x1,
-                        end: b.x0,
-                        snap_points: vec![],
-                    });
-                }
-            }
+                    // Skip if gap is too large
+                    if gap > threshold * 20.0 {
+                        continue;
+                    }
 
-            // Vertical: A is above B
-            if a.y1 < b.y0 {
-                let gap_ab = b.y0 - a.y1;
+                    // Case 1: dragged between top and bottom
+                    if gap > dragged_h {
+                        let target = top.y1 + (gap - dragged_h) / 2.0;
+                        let dist = (dragged_bounds.y0 - target).abs();
+                        if dist < best_dist_y {
+                            best_dist_y = dist;
+                            best_dy = Some((target, target + dragged_h / 2.0, *top));
+                            result
+                                .guides
+                                .retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingV));
+                            result.guides.push(SmartGuide {
+                                kind: SmartGuideKind::EqualSpacingV,
+                                position: dragged_cx,
+                                start: top.y1,
+                                end: target,
+                                snap_points: vec![],
+                            });
+                            result.guides.push(SmartGuide {
+                                kind: SmartGuideKind::EqualSpacingV,
+                                position: dragged_cx,
+                                start: target + dragged_h,
+                                end: bottom.y0,
+                                snap_points: vec![],
+                            });
+                        }
+                    }
 
-                // Case 1: dragged between A and B
-                let target_between = a.y1 + (gap_ab - dragged_h) / 2.0;
-                let dist_between = (dragged_bounds.y0 - target_between).abs();
-                if dist_between < best_dist_y && gap_ab > dragged_h {
-                    best_dist_y = dist_between;
-                    best_dy = Some((target_between, target_between + dragged_h / 2.0, *a));
-                    result
-                        .guides
-                        .retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingV));
-                    let cx = dragged_cx;
-                    result.guides.push(SmartGuide {
-                        kind: SmartGuideKind::EqualSpacingV,
-                        position: cx,
-                        start: a.y1,
-                        end: target_between,
-                        snap_points: vec![],
-                    });
-                    result.guides.push(SmartGuide {
-                        kind: SmartGuideKind::EqualSpacingV,
-                        position: cx,
-                        start: target_between + dragged_h,
-                        end: b.y0,
-                        snap_points: vec![],
-                    });
-                }
+                    // Case 2: dragged below bottom, matching gap
+                    let target_below = bottom.y1 + gap;
+                    let dist_below = (dragged_bounds.y0 - target_below).abs();
+                    if dist_below < best_dist_y {
+                        best_dist_y = dist_below;
+                        best_dy = Some((target_below, target_below + dragged_h / 2.0, *bottom));
+                        result
+                            .guides
+                            .retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingV));
+                        result.guides.push(SmartGuide {
+                            kind: SmartGuideKind::EqualSpacingV,
+                            position: (top.x0 + top.x1) / 2.0,
+                            start: top.y1,
+                            end: bottom.y0,
+                            snap_points: vec![],
+                        });
+                        result.guides.push(SmartGuide {
+                            kind: SmartGuideKind::EqualSpacingV,
+                            position: dragged_cx,
+                            start: bottom.y1,
+                            end: target_below,
+                            snap_points: vec![],
+                        });
+                    }
 
-                // Case 2: dragged below B, matching gap A-B
-                let target_below = b.y1 + gap_ab;
-                let dist_below = (dragged_bounds.y0 - target_below).abs();
-                if dist_below < best_dist_y {
-                    best_dist_y = dist_below;
-                    best_dy = Some((target_below, target_below + dragged_h / 2.0, *b));
-                    result
-                        .guides
-                        .retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingV));
-                    let cx = dragged_cx;
-                    result.guides.push(SmartGuide {
-                        kind: SmartGuideKind::EqualSpacingV,
-                        position: (a.x0 + a.x1) / 2.0,
-                        start: a.y1,
-                        end: b.y0,
-                        snap_points: vec![],
-                    });
-                    result.guides.push(SmartGuide {
-                        kind: SmartGuideKind::EqualSpacingV,
-                        position: cx,
-                        start: b.y1,
-                        end: target_below,
-                        snap_points: vec![],
-                    });
-                }
-
-                // Case 3: dragged above A, matching gap A-B
-                let target_above = a.y0 - gap_ab - dragged_h;
-                let dist_above = (dragged_bounds.y0 - target_above).abs();
-                if dist_above < best_dist_y {
-                    best_dist_y = dist_above;
-                    best_dy = Some((target_above, target_above + dragged_h / 2.0, *a));
-                    result
-                        .guides
-                        .retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingV));
-                    let cx = dragged_cx;
-                    result.guides.push(SmartGuide {
-                        kind: SmartGuideKind::EqualSpacingV,
-                        position: cx,
-                        start: target_above + dragged_h,
-                        end: a.y0,
-                        snap_points: vec![],
-                    });
-                    result.guides.push(SmartGuide {
-                        kind: SmartGuideKind::EqualSpacingV,
-                        position: (b.x0 + b.x1) / 2.0,
-                        start: a.y1,
-                        end: b.y0,
-                        snap_points: vec![],
-                    });
+                    // Case 3: dragged above top, matching gap
+                    let target_above = top.y0 - gap - dragged_h;
+                    let dist_above = (dragged_bounds.y0 - target_above).abs();
+                    if dist_above < best_dist_y {
+                        best_dist_y = dist_above;
+                        best_dy = Some((target_above, target_above + dragged_h / 2.0, *top));
+                        result
+                            .guides
+                            .retain(|g| !matches!(g.kind, SmartGuideKind::EqualSpacingV));
+                        result.guides.push(SmartGuide {
+                            kind: SmartGuideKind::EqualSpacingV,
+                            position: dragged_cx,
+                            start: target_above + dragged_h,
+                            end: top.y0,
+                            snap_points: vec![],
+                        });
+                        result.guides.push(SmartGuide {
+                            kind: SmartGuideKind::EqualSpacingV,
+                            position: (bottom.x0 + bottom.x1) / 2.0,
+                            start: top.y1,
+                            end: bottom.y0,
+                            snap_points: vec![],
+                        });
+                    }
                 }
             }
         }
