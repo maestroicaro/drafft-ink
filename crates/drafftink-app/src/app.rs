@@ -4267,6 +4267,8 @@ impl ApplicationHandler for App {
                             log::debug!("Text edit: unhandled key {:?}", event.logical_key);
                         }
                     }
+                    state.needs_redraw = true;
+                    state.window.request_redraw();
                     return;
                 }
 
