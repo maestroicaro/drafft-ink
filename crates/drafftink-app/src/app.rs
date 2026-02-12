@@ -3266,10 +3266,18 @@ impl ApplicationHandler for App {
 
                         match action {
                             UiAction::ExportPng => {
-                                // Build export scene (full document) with scale
-                                let (scene, bounds) = state
-                                    .shape_renderer
-                                    .build_export_scene(&state.canvas.document, export_scale);
+                                // Build export scene (selection or full document) with scale
+                                let (scene, bounds) = if state.canvas.selection.is_empty() {
+                                    state
+                                        .shape_renderer
+                                        .build_export_scene(&state.canvas.document, export_scale)
+                                } else {
+                                    state.shape_renderer.build_export_scene_selection(
+                                        &state.canvas.document,
+                                        &state.canvas.selection,
+                                        export_scale,
+                                    )
+                                };
                                 if let Some(bounds) = bounds {
                                     let width = bounds.width().ceil() as u32;
                                     let height = bounds.height().ceil() as u32;
@@ -4328,11 +4336,18 @@ impl ApplicationHandler for App {
                                         let queue = &device_handle.queue;
                                         let export_scale = state.ui_state.export_scale as f64;
 
-                                        let (scene, bounds) =
+                                        let (scene, bounds) = if state.canvas.selection.is_empty() {
                                             state.shape_renderer.build_export_scene(
                                                 &state.canvas.document,
                                                 export_scale,
-                                            );
+                                            )
+                                        } else {
+                                            state.shape_renderer.build_export_scene_selection(
+                                                &state.canvas.document,
+                                                &state.canvas.selection,
+                                                export_scale,
+                                            )
+                                        };
                                         if let Some(bounds) = bounds {
                                             let width = bounds.width().ceil() as u32;
                                             let height = bounds.height().ceil() as u32;
