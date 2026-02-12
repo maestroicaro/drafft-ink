@@ -316,11 +316,22 @@ impl CanvasDocument {
                 _ => Sloppiness::Cartoonist,
             };
 
+            let fill_pattern = match elem
+                .get("fillStyle")
+                .and_then(|v| v.as_str())
+                .unwrap_or("solid")
+            {
+                "hachure" => FillPattern::Hachure,
+                "cross-hatch" => FillPattern::CrossHatch,
+                "zigzag" => FillPattern::ZigZag,
+                _ => FillPattern::Solid,
+            };
+
             let style = ShapeStyle {
                 stroke_color,
                 stroke_width,
                 fill_color,
-                fill_pattern: FillPattern::default(),
+                fill_pattern,
                 sloppiness,
                 seed: elem.get("seed").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                 opacity: elem.get("opacity").and_then(|v| v.as_f64()).unwrap_or(1.0),
