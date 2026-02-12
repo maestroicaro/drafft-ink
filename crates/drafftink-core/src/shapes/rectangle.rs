@@ -98,8 +98,22 @@ impl ShapeTrait for Rectangle {
     }
 
     fn hit_test(&self, point: Point, tolerance: f64) -> bool {
-        let rect = self.as_rect().inflate(tolerance, tolerance);
-        rect.contains(point)
+        let rect = self.as_rect();
+        if self.style.fill_color.is_some() {
+            // Filled: hit anywhere inside
+            rect.inflate(tolerance, tolerance).contains(point)
+        } else {
+            // Outline only: hit on the border
+            let outer = rect.inflate(
+                tolerance + self.style.stroke_width / 2.0,
+                tolerance + self.style.stroke_width / 2.0,
+            );
+            let inner = rect.inflate(
+                -(tolerance + self.style.stroke_width / 2.0),
+                -(tolerance + self.style.stroke_width / 2.0),
+            );
+            outer.contains(point) && !inner.contains(point)
+        }
     }
 
     fn to_path(&self) -> BezPath {

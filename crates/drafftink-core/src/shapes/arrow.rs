@@ -155,16 +155,10 @@ impl ShapeTrait for Arrow {
     }
 
     fn hit_test(&self, point: Point, tolerance: f64) -> bool {
-        // Check line segment
-        let line_vec = Vec2::new(self.end.x - self.start.x, self.end.y - self.start.y);
-        let point_vec = Vec2::new(point.x - self.start.x, point.y - self.start.y);
-
-        let line_len_sq = line_vec.hypot2();
-        if line_len_sq > f64::EPSILON {
-            let t = (point_vec.dot(line_vec) / line_len_sq).clamp(0.0, 1.0);
-            let projection =
-                Point::new(self.start.x + t * line_vec.x, self.start.y + t * line_vec.y);
-            let dist = ((point.x - projection.x).powi(2) + (point.y - projection.y).powi(2)).sqrt();
+        // Check all line segments
+        let points = self.all_points();
+        if points.len() >= 2 {
+            let dist = super::point_to_polyline_dist(point, &points);
             if dist <= tolerance + self.style.stroke_width / 2.0 {
                 return true;
             }

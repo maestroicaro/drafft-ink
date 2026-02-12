@@ -232,11 +232,7 @@ impl CanvasDocument {
             .filter_map(|&id| {
                 self.shapes
                     .get(&id)
-                    .filter(|s| {
-                        let bounds = s.bounds();
-                        // Check if shape bounds intersect with selection rect
-                        rect.intersect(bounds).area() > 0.0
-                    })
+                    .filter(|s| s.intersects_rect(rect))
                     .map(|_| id)
             })
             .collect()

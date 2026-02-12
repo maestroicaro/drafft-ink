@@ -267,6 +267,27 @@ impl Default for ShapeStyle {
 /// Unique identifier for shapes.
 pub type ShapeId = Uuid;
 
+/// Distance from a point to a line segment (a→b).
+pub fn point_to_segment_dist(point: Point, a: Point, b: Point) -> f64 {
+    let seg = kurbo::Vec2::new(b.x - a.x, b.y - a.y);
+    let pv = kurbo::Vec2::new(point.x - a.x, point.y - a.y);
+    let len_sq = seg.hypot2();
+    if len_sq < f64::EPSILON {
+        return pv.hypot();
+    }
+    let t = (pv.dot(seg) / len_sq).clamp(0.0, 1.0);
+    let proj = Point::new(a.x + t * seg.x, a.y + t * seg.y);
+    ((point.x - proj.x).powi(2) + (point.y - proj.y).powi(2)).sqrt()
+}
+
+/// Minimum distance from a point to a polyline (sequence of connected segments).
+pub fn point_to_polyline_dist(point: Point, points: &[Point]) -> f64 {
+    points
+        .windows(2)
+        .map(|w| point_to_segment_dist(point, w[0], w[1]))
+        .fold(f64::INFINITY, f64::min)
+}
+
 /// Common trait for all shapes.
 pub trait ShapeTrait {
     /// Get the unique identifier.
@@ -345,6 +366,20 @@ impl Shape {
             Shape::Line(s) => s.all_points(),
             Shape::Arrow(s) => s.all_points(),
             _ => Vec::new(),
+        }
+    }
+
+    /// Test if this shape intersects a selection rectangle.
+    /// For lines/arrows, checks if any segment crosses or is inside the rect.
+    /// For other shapes, checks bounding box intersection.
+    pub fn intersects_rect(&self, rect: Rect) -> bool {
+        match self {
+            Shape::Line(s) => line_segments_intersect_rect(&s.all_points(), rect),
+            Shape::Arrow(s) => line_segments_intersect_rect(&s.all_points(), rect),
+            _ => {
+                let bounds = self.bounds();
+                rect.intersect(bounds.inflate(1.0, 1.0)).area() > 0.0
+            }
         }
     }
 
@@ -504,4 +539,58 @@ impl Shape {
                 | Shape::Math(_)
         )
     }
+}
+
+/// Test if any line segment (defined by consecutive points) intersects or is inside a rectangle.
+fn line_segments_intersect_rect(points: &[Point], rect: Rect) -> bool {
+    // Any point inside the rect?
+    if points.iter().any(|p| rect.contains(*p)) {
+        return true;
+    }
+    // Any segment crosses a rect edge?
+    let corners = [
+        Point::new(rect.x0, rect.y0),
+        Point::new(rect.x1, rect.y0),
+        Point::new(rect.x1, rect.y1),
+        Point::new(rect.x0, rect.y1),
+    ];
+    let edges = [
+        (corners[0], corners[1]),
+        (corners[1], corners[2]),
+        (corners[2], corners[3]),
+        (corners[3], corners[0]),
+    ];
+    for w in points.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        for &(c, d) in &edges {
+            if segments_intersect(a, b, c, d) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Test if two line segments (a-b) and (c-d) intersect.
+fn segments_intersect(a: Point, b: Point, c: Point, d: Point) -> bool {
+    let cross = |o: Point, p: Point, q: Point| -> f64 {
+        (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x)
+    };
+    let d1 = cross(c, d, a);
+    let d2 = cross(c, d, b);
+    let d3 = cross(a, b, c);
+    let d4 = cross(a, b, d);
+    if ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0))
+        && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
+    {
+        return true;
+    }
+    // Collinear cases: check if endpoint lies on the other segment
+    let on_segment = |p: Point, q: Point, r: Point| -> bool {
+        r.x >= p.x.min(q.x) && r.x <= p.x.max(q.x) && r.y >= p.y.min(q.y) && r.y <= p.y.max(q.y)
+    };
+    (d1.abs() < 1e-10 && on_segment(c, d, a))
+        || (d2.abs() < 1e-10 && on_segment(c, d, b))
+        || (d3.abs() < 1e-10 && on_segment(a, b, c))
+        || (d4.abs() < 1e-10 && on_segment(a, b, d))
 }

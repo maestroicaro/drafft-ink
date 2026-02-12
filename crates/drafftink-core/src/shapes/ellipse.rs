@@ -85,9 +85,25 @@ impl ShapeTrait for Ellipse {
     }
 
     fn hit_test(&self, point: Point, tolerance: f64) -> bool {
-        let dx = (point.x - self.center.x) / (self.radius_x + tolerance);
-        let dy = (point.y - self.center.y) / (self.radius_y + tolerance);
-        dx * dx + dy * dy <= 1.0
+        let half_sw = self.style.stroke_width / 2.0;
+        let dx_outer = (point.x - self.center.x) / (self.radius_x + tolerance + half_sw);
+        let dy_outer = (point.y - self.center.y) / (self.radius_y + tolerance + half_sw);
+        let outside_outer = dx_outer * dx_outer + dy_outer * dy_outer > 1.0;
+        if outside_outer {
+            return false;
+        }
+        if self.style.fill_color.is_some() {
+            return true;
+        }
+        // Outline only: reject if inside inner ellipse
+        let inner_rx = (self.radius_x - tolerance - half_sw).max(0.0);
+        let inner_ry = (self.radius_y - tolerance - half_sw).max(0.0);
+        if inner_rx < f64::EPSILON || inner_ry < f64::EPSILON {
+            return true;
+        }
+        let dx_inner = (point.x - self.center.x) / inner_rx;
+        let dy_inner = (point.y - self.center.y) / inner_ry;
+        dx_inner * dx_inner + dy_inner * dy_inner > 1.0
     }
 
     fn to_path(&self) -> BezPath {
