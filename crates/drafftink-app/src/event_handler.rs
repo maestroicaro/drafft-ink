@@ -20,6 +20,25 @@ use kurbo::{Point, Rect, Size};
 /// Maximum number of snap candidates (like Inkscape's limit of 200).
 const MAX_SNAP_CANDIDATES: usize = 200;
 
+/// Get snap points from a line/arrow's own endpoints, excluding the one being dragged.
+fn self_snap_rects(shape: &Shape, handle: Option<HandleKind>) -> Vec<Rect> {
+    let points = shape.snap_points();
+    if points.is_empty() {
+        return Vec::new();
+    }
+    let dragged_idx = match handle {
+        Some(HandleKind::Endpoint(idx)) => Some(idx),
+        Some(HandleKind::IntermediatePoint(idx)) => Some(idx + 1), // offset by 1 for start
+        _ => None,
+    };
+    points
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| dragged_idx.map_or(true, |d| *i != d))
+        .map(|(_, pt)| Rect::new(pt.x, pt.y, pt.x, pt.y))
+        .collect()
+}
+
 /// Collect snap candidate bounds with viewport culling, proximity filtering, and limit.
 /// `exclude_ids` - shape IDs to exclude (e.g., the shape being dragged)
 /// `snap_zone` - expanded bounds around the dragged object for proximity filtering
@@ -925,8 +944,10 @@ impl EventHandler {
                             angle_result.point,
                             Size::new(ENDPOINT_SNAP_RADIUS * 2.0, ENDPOINT_SNAP_RADIUS * 2.0),
                         );
-                        let other_bounds =
+                        let mut other_bounds =
                             collect_snap_candidates(canvas, &[manip.shape_id], Some(snap_zone));
+                        // Include the line's own non-dragged endpoints
+                        other_bounds.extend(self_snap_rects(&manip.original_shape, manip.handle));
 
                         let guide_result = snap_ray_to_smart_guides(
                             other_endpoint,
@@ -974,8 +995,10 @@ impl EventHandler {
                         target_position,
                         Size::new(ENDPOINT_SNAP_RADIUS * 2.0, ENDPOINT_SNAP_RADIUS * 2.0),
                     );
-                    let other_bounds =
+                    let mut other_bounds =
                         collect_snap_candidates(canvas, &[manip.shape_id], Some(snap_zone));
+                    // Include the line's own non-dragged endpoints
+                    other_bounds.extend(self_snap_rects(&manip.original_shape, manip.handle));
 
                     let guide_result = detect_smart_guides_for_point(
                         target_position,
