@@ -1,7 +1,7 @@
 //! Selection and manipulation handle system.
 
 use crate::shapes::{Shape, ShapeId, ShapeTrait};
-use kurbo::{Point, Rect};
+use kurbo::{Affine, Point, Rect};
 use serde::{Deserialize, Serialize};
 
 /// Handle size in screen pixels.
@@ -125,10 +125,9 @@ pub fn get_handles(shape: &Shape) -> Vec<Handle> {
             let bounds = shape.bounds();
             corner_handles(bounds)
         }
-        Shape::Group(_) => {
-            // Groups use bounding box corners (resize not supported, only move)
+        Shape::Group(group) => {
             let bounds = shape.bounds();
-            corner_handles(bounds)
+            corner_and_rotate_handles(bounds, group.rotation)
         }
     }
 }
@@ -537,6 +536,9 @@ pub fn apply_manipulation(
                 Shape::Image(image) => {
                     apply_corner_resize_image(image, corner, delta, keep_aspect_ratio);
                 }
+                Shape::Group(group) => {
+                    apply_corner_resize_group(group, corner, delta, keep_aspect_ratio);
+                }
                 _ => {}
             }
         }
@@ -834,6 +836,76 @@ fn apply_corner_resize_image(
     image.position = Point::new(x0, y0);
     image.width = width;
     image.height = height;
+}
+
+/// Apply corner resize to a group by scaling all children relative to group bounds.
+fn apply_corner_resize_group(
+    group: &mut crate::shapes::Group,
+    corner: Corner,
+    delta: kurbo::Vec2,
+    keep_aspect_ratio: bool,
+) {
+    let bounds = group.bounds();
+    if bounds.width() < 1.0 && bounds.height() < 1.0 {
+        return;
+    }
+
+    let (new_x0, new_y0, new_x1, new_y1) = match corner {
+        Corner::TopLeft => (
+            bounds.x0 + delta.x,
+            bounds.y0 + delta.y,
+            bounds.x1,
+            bounds.y1,
+        ),
+        Corner::TopRight => (
+            bounds.x0,
+            bounds.y0 + delta.y,
+            bounds.x1 + delta.x,
+            bounds.y1,
+        ),
+        Corner::BottomLeft => (
+            bounds.x0 + delta.x,
+            bounds.y0,
+            bounds.x1,
+            bounds.y1 + delta.y,
+        ),
+        Corner::BottomRight => (
+            bounds.x0,
+            bounds.y0,
+            bounds.x1 + delta.x,
+            bounds.y1 + delta.y,
+        ),
+    };
+
+    let (x0, x1) = if new_x0 < new_x1 {
+        (new_x0, new_x1)
+    } else {
+        (new_x1, new_x0)
+    };
+    let (y0, y1) = if new_y0 < new_y1 {
+        (new_y0, new_y1)
+    } else {
+        (new_y1, new_y0)
+    };
+
+    let old_w = bounds.width().max(1.0);
+    let old_h = bounds.height().max(1.0);
+
+    let (sx, sy) = if keep_aspect_ratio {
+        let s = ((x1 - x0).max(1.0) / old_w).max((y1 - y0).max(1.0) / old_h);
+        (s, s)
+    } else {
+        ((x1 - x0).max(1.0) / old_w, (y1 - y0).max(1.0) / old_h)
+    };
+
+    // Transform: translate to origin, scale, translate to new position
+    let affine = Affine::translate(kurbo::Vec2::new(x0, y0))
+        * Affine::scale_non_uniform(sx, sy)
+        * Affine::translate(kurbo::Vec2::new(-bounds.x0, -bounds.y0));
+
+    for child in group.children_mut() {
+        child.transform(affine);
+    }
 }
 
 #[cfg(test)]

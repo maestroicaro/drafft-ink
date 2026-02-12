@@ -12,6 +12,9 @@ pub struct Group {
     pub(crate) id: ShapeId,
     /// Child shapes in this group.
     pub children: Vec<Shape>,
+    /// Rotation angle in radians.
+    #[serde(default)]
+    pub rotation: f64,
     /// Style properties (not directly used, but kept for consistency).
     style: ShapeStyle,
 }
@@ -22,6 +25,7 @@ impl Group {
         Self {
             id: Uuid::new_v4(),
             children,
+            rotation: 0.0,
             style: ShapeStyle::default(),
         }
     }
@@ -31,6 +35,7 @@ impl Group {
         Self {
             id,
             children,
+            rotation: 0.0,
             style: ShapeStyle::default(),
         }
     }

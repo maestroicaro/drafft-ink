@@ -512,6 +512,7 @@ impl Shape {
             Shape::Text(t) => t.rotation,
             Shape::Image(i) => i.rotation,
             Shape::Math(m) => m.rotation,
+            Shape::Group(g) => g.rotation,
             _ => 0.0,
         }
     }
@@ -524,6 +525,7 @@ impl Shape {
             Shape::Text(t) => t.rotation = rotation,
             Shape::Image(i) => i.rotation = rotation,
             Shape::Math(m) => m.rotation = rotation,
+            Shape::Group(g) => g.rotation = rotation,
             _ => {}
         }
     }
@@ -537,6 +539,7 @@ impl Shape {
                 | Shape::Text(_)
                 | Shape::Image(_)
                 | Shape::Math(_)
+                | Shape::Group(_)
         )
     }
 }
