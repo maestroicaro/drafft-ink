@@ -49,6 +49,7 @@ impl ShortcutRegistry {
             Shortcut::new("S", true, false, "Save Local"),
             Shortcut::new("O", true, false, "Open..."),
             Shortcut::new("E", true, false, "Export to PNG"),
+            Shortcut::new("E", true, true, "Copy selection as PNG"),
             Shortcut::new("Z", true, false, "Undo"),
             Shortcut::new("Z", true, true, "Redo"),
             Shortcut::new("Y", true, false, "Redo"),

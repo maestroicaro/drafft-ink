@@ -811,6 +811,32 @@ pub mod file_ops {
         PENDING_IMAGE.with(|cell| cell.borrow_mut().take())
     }
 
+    // Thread-local storage for pending pasted Excalidraw shapes
+    thread_local! {
+        static PENDING_EXCALIDRAW_SHAPES: RefCell<Option<Vec<drafftink_core::shapes::Shape>>> = const { RefCell::new(None) };
+    }
+
+    /// Try to paste shapes from clipboard text (Excalidraw format).
+    /// The result will be available via `take_pending_excalidraw_shapes()`.
+    pub fn paste_shapes_from_clipboard_async() {
+        wasm_bindgen_futures::spawn_local(async {
+            if let Some(text) = read_clipboard_text_async().await {
+                if let Some(shapes) =
+                    drafftink_core::canvas::CanvasDocument::shapes_from_excalidraw_clipboard(&text)
+                {
+                    PENDING_EXCALIDRAW_SHAPES.with(|cell| {
+                        *cell.borrow_mut() = Some(shapes);
+                    });
+                }
+            }
+        });
+    }
+
+    /// Take pending Excalidraw shapes from clipboard paste.
+    pub fn take_pending_excalidraw_shapes() -> Option<Vec<drafftink_core::shapes::Shape>> {
+        PENDING_EXCALIDRAW_SHAPES.with(|cell| cell.borrow_mut().take())
+    }
+
     // Thread-local storage for pending dropped images
     thread_local! {
         static PENDING_DROPPED_IMAGES: RefCell<Vec<drafftink_core::shapes::Shape>> = const { RefCell::new(Vec::new()) };
@@ -1938,6 +1964,23 @@ impl ApplicationHandler for App {
                     if state.collab.is_in_room() {
                         let _ = state.collab.crdt_mut().add_shape(&image_shape);
                     }
+                    state.needs_redraw = true;
+                }
+
+                // Check for pending Excalidraw shapes from clipboard (WASM)
+                #[cfg(target_arch = "wasm32")]
+                if let Some(shapes) = file_ops::take_pending_excalidraw_shapes() {
+                    state.canvas.document.push_undo();
+                    state.canvas.clear_selection();
+                    for shape in shapes {
+                        let new_id = shape.id();
+                        state.canvas.document.add_shape(shape.clone());
+                        state.canvas.add_to_selection(new_id);
+                        if state.collab.is_in_room() {
+                            let _ = state.collab.crdt_mut().add_shape(&shape);
+                        }
+                    }
+                    log::info!("Pasted shapes from Excalidraw clipboard");
                     state.needs_redraw = true;
                 }
 
@@ -4327,6 +4370,75 @@ impl ApplicationHandler for App {
                                         file_ops::load_document_async();
                                     }
                                 }
+                                // Ctrl+Shift+E = Copy PNG to clipboard
+                                "e" | "E" if has_shift => {
+                                    if let Some(render_cx) = self.render_cx.as_ref() {
+                                        let device_handle =
+                                            &render_cx.devices[state.surface.dev_id];
+                                        let device = &device_handle.device;
+                                        let queue = &device_handle.queue;
+                                        let export_scale = state.ui_state.export_scale as f64;
+
+                                        let (scene, bounds) = if state.canvas.selection.is_empty() {
+                                            state.shape_renderer.build_export_scene(
+                                                &state.canvas.document,
+                                                export_scale,
+                                            )
+                                        } else {
+                                            state.shape_renderer.build_export_scene_selection(
+                                                &state.canvas.document,
+                                                &state.canvas.selection,
+                                                export_scale,
+                                            )
+                                        };
+
+                                        if let Some(bounds) = bounds {
+                                            let width = bounds.width().ceil() as u32;
+                                            let height = bounds.height().ceil() as u32;
+
+                                            log::info!(
+                                                "Copying PNG at {}x scale: {}x{}",
+                                                state.ui_state.export_scale,
+                                                width,
+                                                height
+                                            );
+
+                                            #[cfg(not(target_arch = "wasm32"))]
+                                            {
+                                                if let Some(result) = render_scene_to_png(
+                                                    device,
+                                                    queue,
+                                                    &mut state.vello_renderer,
+                                                    &scene,
+                                                    width,
+                                                    height,
+                                                ) {
+                                                    file_ops::copy_png_to_clipboard(
+                                                        &result.rgba_data,
+                                                        result.width,
+                                                        result.height,
+                                                    );
+                                                }
+                                            }
+
+                                            #[cfg(target_arch = "wasm32")]
+                                            {
+                                                spawn_png_export_async(
+                                                    device,
+                                                    queue,
+                                                    scene,
+                                                    width,
+                                                    height,
+                                                    "selection.png".to_string(),
+                                                    true,
+                                                    None,
+                                                );
+                                            }
+                                        } else {
+                                            log::info!("Nothing to copy - selection is empty");
+                                        }
+                                    }
+                                }
                                 // Ctrl+E = Export PNG
                                 "e" | "E" => {
                                     if let Some(render_cx) = self.render_cx.as_ref() {
@@ -4593,6 +4705,29 @@ impl ApplicationHandler for App {
                                         }
                                     }
 
+                                    // Try Excalidraw clipboard format from system clipboard (native)
+                                    #[cfg(not(target_arch = "wasm32"))]
+                                    if !pasted {
+                                        if let Ok(mut cb) = arboard::Clipboard::new() {
+                                            if let Ok(text) = cb.get_text() {
+                                                if let Some(shapes) = drafftink_core::canvas::CanvasDocument::shapes_from_excalidraw_clipboard(&text) {
+                                                    state.canvas.document.push_undo();
+                                                    state.canvas.clear_selection();
+                                                    for shape in shapes {
+                                                        let new_id = shape.id();
+                                                        state.canvas.document.add_shape(shape.clone());
+                                                        state.canvas.add_to_selection(new_id);
+                                                        if state.collab.is_in_room() {
+                                                            let _ = state.collab.crdt_mut().add_shape(&shape);
+                                                        }
+                                                    }
+                                                    log::info!("Pasted shapes from Excalidraw clipboard");
+                                                    pasted = true;
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     // If no shapes, try to paste image from system clipboard
                                     #[cfg(not(target_arch = "wasm32"))]
                                     if !pasted {
@@ -4612,9 +4747,10 @@ impl ApplicationHandler for App {
                                         }
                                     }
 
-                                    // WASM: Try async clipboard paste
+                                    // WASM: Try Excalidraw clipboard text first, then image
                                     #[cfg(target_arch = "wasm32")]
                                     if !pasted {
+                                        file_ops::paste_shapes_from_clipboard_async();
                                         let vw = state.canvas.viewport_size.width;
                                         let vh = state.canvas.viewport_size.height;
                                         let cox = state.canvas.camera.offset.x;

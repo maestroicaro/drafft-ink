@@ -70,8 +70,8 @@ pub struct VelloRenderer {
     /// Key is the shape ID (as string), value is the decoded peniko ImageData.
     image_cache: std::collections::HashMap<String, peniko::ImageData>,
     /// Shape path cache for hand-drawn effects.
-    /// Key: (shape_id, seed, stroke_index, roughness_bits, zoom_bucket)
-    shape_cache: std::collections::HashMap<(String, u32, u32, u64, i32), BezPath>,
+    /// Key: (shape_id, seed, stroke_index, roughness_bits, zoom_bucket, path_hash)
+    shape_cache: std::collections::HashMap<(String, u32, u32, u64, i32, u64), BezPath>,
     /// Text layout cache. Key: (shape_id, content_hash)
     text_cache: std::collections::HashMap<(String, u64), CachedTextLayout>,
 }
@@ -511,15 +511,45 @@ impl VelloRenderer {
         seed: u32,
         stroke_index: u32,
     ) -> BezPath {
+        use std::hash::{Hash, Hasher};
         // Quantize zoom to reduce cache misses (bucket by 0.25 increments)
         let zoom_bucket = (self.zoom * 4.0) as i32;
         let roughness_bits = roughness.to_bits();
+        // Hash path geometry so cache invalidates when shape moves/resizes
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for el in path.elements() {
+            match el {
+                kurbo::PathEl::MoveTo(p) | kurbo::PathEl::LineTo(p) => {
+                    p.x.to_bits().hash(&mut hasher);
+                    p.y.to_bits().hash(&mut hasher);
+                }
+                kurbo::PathEl::QuadTo(p1, p2) => {
+                    p1.x.to_bits().hash(&mut hasher);
+                    p1.y.to_bits().hash(&mut hasher);
+                    p2.x.to_bits().hash(&mut hasher);
+                    p2.y.to_bits().hash(&mut hasher);
+                }
+                kurbo::PathEl::CurveTo(p1, p2, p3) => {
+                    p1.x.to_bits().hash(&mut hasher);
+                    p1.y.to_bits().hash(&mut hasher);
+                    p2.x.to_bits().hash(&mut hasher);
+                    p2.y.to_bits().hash(&mut hasher);
+                    p3.x.to_bits().hash(&mut hasher);
+                    p3.y.to_bits().hash(&mut hasher);
+                }
+                kurbo::PathEl::ClosePath => {
+                    0u8.hash(&mut hasher);
+                }
+            }
+        }
+        let path_hash = hasher.finish();
         let key = (
             shape_id.to_string(),
             seed,
             stroke_index,
             roughness_bits,
             zoom_bucket,
+            path_hash,
         );
 
         if let Some(cached) = self.shape_cache.get(&key) {
@@ -528,6 +558,21 @@ impl VelloRenderer {
 
         let result = apply_hand_drawn_effect(path, roughness, self.zoom, seed, stroke_index);
         self.shape_cache.insert(key, result.clone());
+        // Evict stale entries to prevent unbounded growth during drags
+        if self.shape_cache.len() > 500 {
+            self.shape_cache.clear();
+            self.shape_cache.insert(
+                (
+                    shape_id.to_string(),
+                    seed,
+                    stroke_index,
+                    roughness_bits,
+                    zoom_bucket,
+                    path_hash,
+                ),
+                result.clone(),
+            );
+        }
         result
     }
 
@@ -1615,8 +1660,9 @@ impl Renderer for VelloRenderer {
             if ctx.editing_shape_id == Some(shape.id()) {
                 continue;
             }
-            // Viewport culling
-            if !shape.bounds().intersect(world_viewport).is_zero_area() {
+            // Viewport culling (inflate bounds to handle zero-area shapes like vertical/horizontal lines)
+            let shape_bounds = shape.bounds().inflate(1.0, 1.0);
+            if !shape_bounds.intersect(world_viewport).is_zero_area() {
                 let is_selected = ctx.canvas.is_selected(shape.id());
                 self.render_shape(shape, camera_transform, is_selected);
             }

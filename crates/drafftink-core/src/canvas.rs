@@ -467,6 +467,23 @@ impl CanvasDocument {
         Ok(doc)
     }
 
+    /// Try to parse clipboard text as Excalidraw clipboard format.
+    /// Returns shapes if the text is valid Excalidraw clipboard JSON.
+    pub fn shapes_from_excalidraw_clipboard(text: &str) -> Option<Vec<Shape>> {
+        let data: serde_json::Value = serde_json::from_str(text).ok()?;
+        let clip_type = data.get("type").and_then(|t| t.as_str())?;
+        if clip_type != "excalidraw/clipboard" {
+            return None;
+        }
+        let doc = Self::from_excalidraw(text).ok()?;
+        let shapes: Vec<Shape> = doc.shapes_ordered().cloned().collect();
+        if shapes.is_empty() {
+            None
+        } else {
+            Some(shapes)
+        }
+    }
+
     /// Export selected shapes to a new document.
     pub fn export_selection(&self, selection: &[ShapeId]) -> Self {
         let mut doc = Self::new();
