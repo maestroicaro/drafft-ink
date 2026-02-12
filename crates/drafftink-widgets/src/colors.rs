@@ -777,7 +777,7 @@ impl<'a> ColorGrid<'a> {
         Self {
             current_color,
             title,
-            shade_indices: &[2, 3, 4, 5, 6, 7, 8, 9, 10], // 100-900 by default
+            shade_indices: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], // 50-950
             position: ColorGridPosition::Below,
         }
     }
@@ -861,8 +861,8 @@ impl<'a> ColorGrid<'a> {
                         ];
 
                         for (row_idx, &shade_idx) in self.shade_indices.iter().enumerate() {
-                            // Add padding above 500-level row
-                            if shade_idx == 6 {
+                            // Add margins around the 500-level row and after 50
+                            if shade_idx == 2 || shade_idx == 6 {
                                 ui.add_space(4.0);
                             }
                             ui.horizontal(|ui| {
