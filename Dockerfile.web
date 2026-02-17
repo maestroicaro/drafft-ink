@@ -19,7 +19,7 @@ WORKDIR /app
 COPY . .
 
 # Build the WASM app
-RUN cd web && wasm-pack build --target web --release
+RUN chmod +x build.sh && ./build.sh --wasm
 
 # Runtime stage - Serve static files
 FROM nginx:alpine
